@@ -18,7 +18,7 @@ const B = {
 };
 
 // ── API endpoint — edge function ──────────────────────────────────
-const API_URL = "/api/chat";
+const API_URL = "/.netlify/functions/chat";;
 
 // ── System prompts ────────────────────────────────────────────────
 const SYSTEM = {
