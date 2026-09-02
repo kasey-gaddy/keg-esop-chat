@@ -1,10 +1,46 @@
-const { getStore } = require("@netlify/blobs");
+// Default suggested questions — overridden by CUSTOM_QUESTIONS env var
+const DEFAULT_QUESTIONS = {
+  en: {
+    employee: [
+      "How does the ESOP work?",
+      "When do I start getting vested?",
+      "What if I leave before I'm vested?",
+      "What could my ESOP be worth?",
+      "What is Blue Diamond Legacy Holdings?",
+      "When can I collect my money?",
+    ],
+    prospect: [
+      "What does employee ownership mean for me?",
+      "Do I pay anything to get stock?",
+      "How long until it's mine to keep?",
+      "What could my ESOP be worth?",
+      "What kind of work does KE&G do?",
+    ],
+  },
+  es: {
+    employee: [
+      "¿Cómo funciona el ESOP?",
+      "¿Cuándo empiezo a adquirir derechos?",
+      "¿Qué pasa si me voy antes?",
+      "¿Cuánto podría valer mi ESOP?",
+      "¿Qué es Blue Diamond Legacy Holdings?",
+      "¿Cuándo puedo cobrar mi dinero?",
+    ],
+    prospect: [
+      "¿Qué significa ser propietario empleado?",
+      "¿Pago algo por las acciones?",
+      "¿Cuánto tiempo hasta que sean mías?",
+      "¿Cuánto podría valer mi ESOP?",
+      "¿Qué tipo de trabajo hace KE&G?",
+    ],
+  },
+};
 
-exports.handler = async (event, context) => {
+exports.handler = async (event) => {
   const headers = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Content-Type": "application/json",
   };
 
@@ -19,57 +55,89 @@ exports.handler = async (event, context) => {
     return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
   }
 
-  try {
-    const store = getStore("esop-logs");
+  // GET — return current config + sheet log data
+  if (event.httpMethod === "GET") {
+    try {
+      // Load custom questions (stored as JSON in env var)
+      let questions = DEFAULT_QUESTIONS;
+      try {
+        const custom = process.env.CUSTOM_QUESTIONS;
+        if (custom) questions = JSON.parse(custom);
+      } catch {}
 
-    let monthIndex = null;
-    try { monthIndex = await store.get("month-index", { type: "json" }); } catch {}
-    if (!monthIndex) monthIndex = [];
+      // Fetch recent log data from Google Sheet via Apps Script
+      const webhookUrl = process.env.GOOGLE_SHEET_WEBHOOK;
+      let logData = { rows: [], summary: { total: 0, byTheme: {}, byMode: {}, byLanguage: {}, byMonth: {} } };
 
-    const recentMonths = monthIndex.slice(0, 12);
-
-    const summaries = await Promise.all(
-      recentMonths.map(async (m) => {
+      if (webhookUrl) {
         try {
-          const s = await store.get(`summary-${m}`, { type: "json" });
-          return s || { month: m, total: 0, byTheme: {}, byMode: {}, byLanguage: {}, topQuestions: [] };
-        } catch {
-          return { month: m, total: 0, byTheme: {}, byMode: {}, byLanguage: {}, topQuestions: [] };
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 8000);
+          const res = await fetch(webhookUrl + "?action=getData", {
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          if (res.ok) {
+            const text = await res.text();
+            try { logData = JSON.parse(text); } catch {}
+          }
+        } catch (fetchErr) {
+          console.error("Sheet fetch error:", fetchErr.message);
         }
-      })
-    );
+      }
 
-    const allThemes = {}, allModes = {}, allLanguages = {};
-    let allTotal = 0;
-
-    summaries.forEach(s => {
-      allTotal += s.total || 0;
-      Object.entries(s.byTheme || {}).forEach(([k, v]) => { allThemes[k] = (allThemes[k] || 0) + v; });
-      Object.entries(s.byMode || {}).forEach(([k, v]) => { allModes[k] = (allModes[k] || 0) + v; });
-      Object.entries(s.byLanguage || {}).forEach(([k, v]) => { allLanguages[k] = (allLanguages[k] || 0) + v; });
-    });
-
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        monthIndex: recentMonths,
-        summaries,
-        aggregate: { total: allTotal, byTheme: allThemes, byMode: allModes, byLanguage: allLanguages },
-        recentQuestions: summaries.flatMap(s => s.topQuestions || []).slice(0, 50),
-      }),
-    };
-  } catch (err) {
-    console.error("admin-data error:", err.message);
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        monthIndex: [], summaries: [],
-        aggregate: { total: 0, byTheme: {}, byMode: {}, byLanguage: {} },
-        recentQuestions: [],
-        note: err.message
-      }),
-    };
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ questions, logData, hasWebhook: !!webhookUrl }),
+      };
+    } catch (err) {
+      return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
+    }
   }
+
+  // POST — save updated questions to env var via Netlify API
+  if (event.httpMethod === "POST") {
+    try {
+      const { questions } = JSON.parse(event.body || "{}");
+      if (!questions) return { statusCode: 400, headers, body: JSON.stringify({ error: "No questions provided" }) };
+
+      const siteId = process.env.NETLIFY_SITE_ID;
+      const netlifyToken = process.env.NETLIFY_API_TOKEN;
+
+      if (!siteId || !netlifyToken) {
+        // Can't save to env — return instructions
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            note: "To enable saving, add NETLIFY_SITE_ID and NETLIFY_API_TOKEN to your environment variables.",
+            questions,
+          }),
+        };
+      }
+
+      // Update CUSTOM_QUESTIONS env var via Netlify API
+      const res = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/env/CUSTOM_QUESTIONS`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${netlifyToken}`,
+        },
+        body: JSON.stringify({ key: "CUSTOM_QUESTIONS", values: [{ value: JSON.stringify(questions), context: "all" }] }),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        return { statusCode: 200, headers, body: JSON.stringify({ success: false, note: err }) };
+      }
+
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, questions }) };
+    } catch (err) {
+      return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
+    }
+  }
+
+  return { statusCode: 405, headers, body: JSON.stringify({ error: "Method not allowed" }) };
 };

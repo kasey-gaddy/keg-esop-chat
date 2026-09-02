@@ -417,14 +417,12 @@ function AdminLogin({ onLogin }) {
       const res = await fetch("/.netlify/functions/admin-data", {
         headers: { "Authorization": `Bearer ${pw}` }
       });
-      if (res.ok) {
-        const data = await res.json();
-        onLogin(pw, data);
-      } else {
-        setErr("Incorrect password.");
-      }
-    } catch {
-      setErr("Connection error.");
+      if (res.status === 401) { setErr("Incorrect password."); setLoading(false); return; }
+      if (!res.ok) { setErr("Server error — check Netlify function logs."); setLoading(false); return; }
+      const data = await res.json();
+      onLogin(pw, data);
+    } catch (e) {
+      setErr("Connection error: " + e.message);
     }
     setLoading(false);
   };
@@ -452,68 +450,133 @@ function AdminLogin({ onLogin }) {
   );
 }
 
+function QuestionsEditor({ questions, password, onSaved }) {
+  const [q, setQ] = useState(JSON.parse(JSON.stringify(questions)));
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const update = (lang, mode, idx, val) => {
+    const next = JSON.parse(JSON.stringify(q));
+    next[lang][mode][idx] = val;
+    setQ(next);
+  };
+  const addQ = (lang, mode) => {
+    const next = JSON.parse(JSON.stringify(q));
+    next[lang][mode].push("");
+    setQ(next);
+  };
+  const removeQ = (lang, mode, idx) => {
+    const next = JSON.parse(JSON.stringify(q));
+    next[lang][mode].splice(idx, 1);
+    setQ(next);
+  };
+
+  const save = async () => {
+    setSaving(true); setMsg("");
+    try {
+      const res = await fetch("/.netlify/functions/admin-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${password}` },
+        body: JSON.stringify({ questions: q }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMsg("✓ Saved! Redeploy Netlify for changes to take effect on the live site.");
+        onSaved(q);
+      } else {
+        setMsg(data.note || "Saved locally — add NETLIFY_SITE_ID and NETLIFY_API_TOKEN to enable auto-deploy.");
+      }
+    } catch (e) { setMsg("Error: " + e.message); }
+    setSaving(false);
+  };
+
+  const inp = { width: "100%", padding: "7px 10px", border: `1.5px solid ${B.border}`, borderRadius: 6, fontSize: 13, fontFamily: "Inter, sans-serif", outline: "none", boxSizing: "border-box", marginBottom: 6 };
+  const sections = [
+    { lang: "en", mode: "employee", label: "English — Employee Mode" },
+    { lang: "en", mode: "prospect", label: "English — Prospect Mode" },
+    { lang: "es", mode: "employee", label: "Spanish — Employee Mode" },
+    { lang: "es", mode: "prospect", label: "Spanish — Prospect Mode" },
+  ];
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+        {sections.map(({ lang, mode, label }) => (
+          <div key={`${lang}-${mode}`} style={{ background: B.bgCard, borderRadius: 12, padding: 20, border: `1px solid ${B.border}` }}>
+            <div style={{ fontWeight: 700, fontSize: 12, color: B.navy, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 14 }}>{label}</div>
+            {(q[lang]?.[mode] || []).map((question, idx) => (
+              <div key={idx} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                <input value={question} onChange={e => update(lang, mode, idx, e.target.value)}
+                  style={{ ...inp, marginBottom: 0, flex: 1 }} placeholder={`Question ${idx + 1}`}/>
+                <button onClick={() => removeQ(lang, mode, idx)} style={{ background: "#fee", border: "1px solid #fcc", color: "#c0392b", borderRadius: 5, padding: "0 10px", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>×</button>
+              </div>
+            ))}
+            <button onClick={() => addQ(lang, mode)} style={{ marginTop: 6, background: B.bgPage, border: `1.5px dashed ${B.border}`, borderRadius: 6, padding: "7px 14px", fontSize: 12, color: B.muted, cursor: "pointer", width: "100%", fontFamily: "Inter, sans-serif" }}>
+              + Add question
+            </button>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <button onClick={save} disabled={saving} style={{ background: B.orange, color: B.white, border: "none", borderRadius: 8, padding: "10px 28px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "Inter, sans-serif" }}>
+          {saving ? "Saving..." : "Save Questions"}
+        </button>
+        {msg && <div style={{ fontSize: 12, color: msg.startsWith("✓") ? "#1a7a4a" : B.muted }}>{msg}</div>}
+      </div>
+    </div>
+  );
+}
+
 function AdminDashboard({ data, password, onLogout }) {
-  const [selectedMonth, setSelectedMonth] = useState("all");
+  const [activeTab, setActiveTab] = useState("analytics");
   const [refreshing, setRefreshing] = useState(false);
   const [currentData, setCurrentData] = useState(data);
+  const [selectedMonth, setSelectedMonth] = useState("all");
 
   const refresh = async () => {
     setRefreshing(true);
     try {
-      const res = await fetch("/.netlify/functions/admin-data", {
-        headers: { "Authorization": `Bearer ${password}` }
-      });
+      const res = await fetch("/.netlify/functions/admin-data", { headers: { "Authorization": `Bearer ${password}` } });
       if (res.ok) setCurrentData(await res.json());
     } catch {}
     setRefreshing(false);
   };
 
-  const { aggregate, summaries, monthIndex, recentQuestions } = currentData;
+  const { logData, questions } = currentData;
+  const summary = logData?.summary || { total: 0, byTheme: {}, byMode: {}, byLanguage: {}, byMonth: {} };
+  const rows = logData?.rows || [];
 
-  // Chart data for monthly usage trend
-  const trendData = [...summaries].reverse().map(s => ({
-    month: s.month, total: s.total
-  }));
+  // Month filter
+  const allMonths = Object.keys(summary.byMonth || {}).sort().reverse();
+  const filteredRows = selectedMonth === "all" ? rows : rows.filter(r => r.timestamp?.startsWith(selectedMonth));
+  const filteredSummary = selectedMonth === "all" ? summary : (() => {
+    const s = { total: 0, byTheme: {}, byMode: {}, byLanguage: {} };
+    filteredRows.forEach(r => {
+      s.total++;
+      s.byTheme[r.theme] = (s.byTheme[r.theme] || 0) + 1;
+      s.byMode[r.mode] = (s.byMode[r.mode] || 0) + 1;
+      s.byLanguage[r.language] = (s.byLanguage[r.language] || 0) + 1;
+    });
+    return s;
+  })();
 
-  // Theme breakdown for selected period
-  const themeSource = selectedMonth === "all"
-    ? aggregate.byTheme
-    : (summaries.find(s => s.month === selectedMonth)?.byTheme || {});
-
-  const themeData = Object.entries(themeSource)
-    .sort((a,b) => b[1]-a[1])
-    .map(([name, value]) => ({ name, value }));
-
-  // Mode breakdown
-  const modeSource = selectedMonth === "all" ? aggregate.byMode :
-    (summaries.find(s => s.month === selectedMonth)?.byMode || {});
-
-  // Language breakdown
-  const langSource = selectedMonth === "all" ? aggregate.byLanguage :
-    (summaries.find(s => s.month === selectedMonth)?.byLanguage || {});
-
-  // Top questions for selected period
-  const topQs = selectedMonth === "all"
-    ? recentQuestions
-    : (summaries.find(s => s.month === selectedMonth)?.topQuestions || []);
-
-  const totalForPeriod = selectedMonth === "all" ? aggregate.total :
-    (summaries.find(s => s.month === selectedMonth)?.total || 0);
+  const themeData = Object.entries(filteredSummary.byTheme).sort((a,b) => b[1]-a[1]).map(([name, value]) => ({ name, value }));
+  const trendData = Object.entries(summary.byMonth).sort().map(([month, total]) => ({ month, total }));
 
   const card = { background: B.bgCard, borderRadius: 12, padding: "20px", border: `1px solid ${B.border}`, boxShadow: "0 2px 8px rgba(25,36,55,0.08)" };
-  const cardTitle = { fontWeight: 700, fontSize: 13, color: B.navy, marginBottom: 14, fontFamily: "Inter, sans-serif", textTransform: "uppercase", letterSpacing: "0.06em" };
+  const cardTitle = { fontWeight: 700, fontSize: 12, color: B.navy, marginBottom: 14, fontFamily: "Inter, sans-serif", textTransform: "uppercase", letterSpacing: "0.06em" };
+  const tabs = [{ id: "analytics", label: "📊 Analytics" }, { id: "questions", label: "✏️ Edit Questions" }, { id: "log", label: "📋 Question Log" }];
 
   return (
     <div style={{ minHeight: "100dvh", background: B.bgPage, fontFamily: "Inter, sans-serif" }}>
-      {/* Header */}
       <div style={{ background: B.grad, padding: "14px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <div style={{ color: B.white, fontWeight: 900, fontSize: 16 }}>KE&G ESOP Admin Dashboard</div>
-          <div style={{ color: B.gray, fontSize: 11, marginTop: 2 }}>Question analytics & usage tracking</div>
+          <div style={{ color: B.white, fontWeight: 900, fontSize: 16 }}>KE&G ESOP Admin</div>
+          <div style={{ color: B.gray, fontSize: 11, marginTop: 2 }}>Analytics · Question editor · Log</div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={refresh} disabled={refreshing} style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: B.white, fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontFamily: "Inter, sans-serif" }}>
-            {refreshing ? "Refreshing..." : "↻ Refresh"}
+            {refreshing ? "..." : "↻ Refresh"}
           </button>
           <button onClick={onLogout} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.3)", color: B.gray, fontSize: 12, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontFamily: "Inter, sans-serif" }}>
             Sign Out
@@ -521,118 +584,156 @@ function AdminDashboard({ data, password, onLogout }) {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div style={{ background: B.bgCard, borderBottom: `1px solid ${B.border}`, padding: "0 28px", display: "flex", gap: 4 }}>
+        {tabs.map(tab => (
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
+            padding: "13px 18px", fontSize: 13, fontWeight: activeTab === tab.id ? 700 : 500,
+            color: activeTab === tab.id ? B.orange : B.mid,
+            background: "transparent", border: "none",
+            borderBottom: activeTab === tab.id ? `2px solid ${B.orange}` : "2px solid transparent",
+            cursor: "pointer", fontFamily: "Inter, sans-serif", marginBottom: -1,
+          }}>{tab.label}</button>
+        ))}
+      </div>
+
       <div style={{ padding: "24px 28px", maxWidth: 1200 }}>
 
-        {/* Filter bar */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: B.mid, textTransform: "uppercase", letterSpacing: "0.06em" }}>Filter:</span>
-          {["all", ...monthIndex].map(m => (
-            <button key={m} onClick={() => setSelectedMonth(m)} style={{
-              padding: "5px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", border: `1.5px solid ${selectedMonth === m ? B.orange : B.border}`,
-              background: selectedMonth === m ? B.orange : B.bgCard, color: selectedMonth === m ? B.white : B.mid, fontFamily: "Inter, sans-serif", transition: "all 0.15s"
-            }}>
-              {m === "all" ? "All Time" : m}
-            </button>
-          ))}
-        </div>
-
-        {/* Stat cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
-          {[
-            { label: "Total Questions", value: totalForPeriod, sub: selectedMonth === "all" ? "all time" : selectedMonth },
-            { label: "Employee Mode", value: modeSource.employee || 0, sub: `${totalForPeriod ? Math.round((modeSource.employee||0)/totalForPeriod*100) : 0}% of total` },
-            { label: "Prospect Mode", value: modeSource.prospect || 0, sub: `${totalForPeriod ? Math.round((modeSource.prospect||0)/totalForPeriod*100) : 0}% of total` },
-            { label: "Spanish", value: langSource.es || 0, sub: `${totalForPeriod ? Math.round((langSource.es||0)/totalForPeriod*100) : 0}% of total` },
-          ].map(s => (
-            <div key={s.label} style={card}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: B.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>{s.label}</div>
-              <div style={{ fontSize: 36, fontWeight: 900, color: B.navy, lineHeight: 1 }}>{s.value}</div>
-              <div style={{ fontSize: 11, color: B.muted, marginTop: 4 }}>{s.sub}</div>
+        {/* ── ANALYTICS TAB ── */}
+        {activeTab === "analytics" && (
+          <div>
+            {/* Month filter */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: B.mid, textTransform: "uppercase", letterSpacing: "0.06em" }}>Period:</span>
+              {["all", ...allMonths].map(m => (
+                <button key={m} onClick={() => setSelectedMonth(m)} style={{
+                  padding: "4px 12px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                  border: `1.5px solid ${selectedMonth === m ? B.orange : B.border}`,
+                  background: selectedMonth === m ? B.orange : B.bgCard,
+                  color: selectedMonth === m ? B.white : B.mid, fontFamily: "Inter, sans-serif",
+                }}>{m === "all" ? "All Time" : m}</button>
+              ))}
             </div>
-          ))}
-        </div>
 
-        {/* Charts row */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
-
-          {/* Monthly trend */}
-          <div style={card}>
-            <div style={cardTitle}>Monthly Usage Trend</div>
-            <div style={{ height: 200 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={trendData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={B.border}/>
-                  <XAxis dataKey="month" tick={{ fontSize: 10, fill: B.muted }}/>
-                  <YAxis tick={{ fontSize: 10, fill: B.muted }} width={32}/>
-                  <Tooltip/>
-                  <Bar dataKey="total" fill={B.orange} radius={[4,4,0,0]}/>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Theme breakdown pie */}
-          <div style={card}>
-            <div style={cardTitle}>Questions by Theme</div>
-            {themeData.length > 0 ? (
-              <div style={{ height: 200 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={themeData} dataKey="value" cx="40%" cy="50%" outerRadius={80} label={false}>
-                      {themeData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]}/>)}
-                    </Pie>
-                    <Legend layout="vertical" align="right" verticalAlign="middle"
-                      formatter={(value) => <span style={{ fontSize: 10, color: B.mid }}>{value}</span>}/>
-                    <Tooltip/>
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, color: B.muted, fontSize: 13 }}>No data for this period</div>
-            )}
-          </div>
-        </div>
-
-        {/* Theme breakdown bar + top questions */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-
-          {/* Theme bars */}
-          <div style={card}>
-            <div style={cardTitle}>Theme Breakdown</div>
-            {themeData.length === 0 ? (
-              <div style={{ color: B.muted, fontSize: 13 }}>No data yet</div>
-            ) : themeData.map((t, i) => (
-              <div key={t.name} style={{ marginBottom: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-                  <span style={{ color: B.mid, fontWeight: 500 }}>{t.name}</span>
-                  <span style={{ color: B.navy, fontWeight: 700 }}>{t.value}</span>
-                </div>
-                <div style={{ height: 7, background: B.bgPage, borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${(t.value / (themeData[0]?.value || 1)) * 100}%`, background: PIE_COLORS[i % PIE_COLORS.length], borderRadius: 4, transition: "width 0.5s" }}/>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Recent questions */}
-          <div style={card}>
-            <div style={cardTitle}>Recent Questions</div>
-            <div style={{ maxHeight: 320, overflowY: "auto" }}>
-              {topQs.length === 0 ? (
-                <div style={{ color: B.muted, fontSize: 13 }}>No questions logged yet</div>
-              ) : topQs.slice(0, 30).map((q, i) => (
-                <div key={i} style={{ padding: "8px 0", borderBottom: i < topQs.length-1 ? `1px solid ${B.border}` : "none" }}>
-                  <div style={{ fontSize: 13, color: B.black, marginBottom: 3 }}>{q.question}</div>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 10, background: B.bgPage, color: B.muted, padding: "2px 7px", borderRadius: 10 }}>{q.theme}</span>
-                    <span style={{ fontSize: 10, color: B.muted }}>{q.mode}</span>
-                    <span style={{ fontSize: 10, color: B.muted, marginLeft: "auto" }}>{q.timestamp ? new Date(q.timestamp).toLocaleDateString() : ""}</span>
-                  </div>
+            {/* Stat cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
+              {[
+                { label: "Total Questions", value: filteredSummary.total, sub: selectedMonth === "all" ? "all time" : selectedMonth },
+                { label: "Employee Mode", value: filteredSummary.byMode?.employee || 0, sub: `${filteredSummary.total ? Math.round((filteredSummary.byMode?.employee||0)/filteredSummary.total*100) : 0}%` },
+                { label: "Prospect Mode", value: filteredSummary.byMode?.prospect || 0, sub: `${filteredSummary.total ? Math.round((filteredSummary.byMode?.prospect||0)/filteredSummary.total*100) : 0}%` },
+                { label: "Spanish", value: filteredSummary.byLanguage?.es || 0, sub: `${filteredSummary.total ? Math.round((filteredSummary.byLanguage?.es||0)/filteredSummary.total*100) : 0}%` },
+              ].map(s => (
+                <div key={s.label} style={card}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: B.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>{s.label}</div>
+                  <div style={{ fontSize: 36, fontWeight: 900, color: B.navy, lineHeight: 1 }}>{s.value}</div>
+                  <div style={{ fontSize: 11, color: B.muted, marginTop: 4 }}>{s.sub}</div>
                 </div>
               ))}
             </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
+              <div style={card}>
+                <div style={cardTitle}>Monthly Trend</div>
+                <div style={{ height: 200 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={trendData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={B.border}/>
+                      <XAxis dataKey="month" tick={{ fontSize: 10, fill: B.muted }}/>
+                      <YAxis tick={{ fontSize: 10, fill: B.muted }} width={32}/>
+                      <Tooltip/>
+                      <Bar dataKey="total" fill={B.orange} radius={[4,4,0,0]}/>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+              <div style={card}>
+                <div style={cardTitle}>Questions by Theme</div>
+                {themeData.length > 0 ? (
+                  <div style={{ height: 200 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={themeData} dataKey="value" cx="40%" cy="50%" outerRadius={80} label={false}>
+                          {themeData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]}/>)}
+                        </Pie>
+                        <Legend layout="vertical" align="right" verticalAlign="middle"
+                          formatter={(v) => <span style={{ fontSize: 10, color: B.mid }}>{v}</span>}/>
+                        <Tooltip/>
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, color: B.muted, fontSize: 13 }}>No data yet — questions will appear after users start chatting.</div>}
+              </div>
+            </div>
+
+            {/* Theme bars */}
+            <div style={card}>
+              <div style={cardTitle}>Theme Breakdown</div>
+              {themeData.length === 0
+                ? <div style={{ color: B.muted, fontSize: 13 }}>No data yet.</div>
+                : themeData.map((t, i) => (
+                  <div key={t.name} style={{ marginBottom: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ color: B.mid, fontWeight: 500 }}>{t.name}</span>
+                      <span style={{ color: B.navy, fontWeight: 700 }}>{t.value}</span>
+                    </div>
+                    <div style={{ height: 7, background: B.bgPage, borderRadius: 4, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${(t.value/(themeData[0]?.value||1))*100}%`, background: PIE_COLORS[i%PIE_COLORS.length], borderRadius: 4 }}/>
+                    </div>
+                  </div>
+                ))}
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* ── QUESTIONS EDITOR TAB ── */}
+        {activeTab === "questions" && (
+          <div>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontWeight: 700, fontSize: 16, color: B.navy, marginBottom: 6 }}>Edit Suggested Questions</div>
+              <div style={{ fontSize: 13, color: B.muted, lineHeight: 1.6 }}>
+                These are the question chips shown to users when they first open the chat. Edit them here and click Save. Changes take effect on the live site after the next Netlify deploy.
+              </div>
+            </div>
+            <QuestionsEditor questions={questions} password={password} onSaved={q => setCurrentData(d => ({ ...d, questions: q }))}/>
+          </div>
+        )}
+
+        {/* ── LOG TAB ── */}
+        {activeTab === "log" && (
+          <div style={card}>
+            <div style={cardTitle}>Question Log ({filteredRows.length} entries)</div>
+            {filteredRows.length === 0 ? (
+              <div style={{ color: B.muted, fontSize: 13, padding: "20px 0" }}>
+                No questions logged yet. Make sure <strong>GOOGLE_SHEET_WEBHOOK</strong> is set in your Netlify environment variables.
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: B.bgPage }}>
+                      {["Timestamp", "Mode", "Lang", "Theme", "Question"].map(h => (
+                        <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontWeight: 700, color: B.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontSize: 10, borderBottom: `1px solid ${B.border}` }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredRows.slice(0, 100).map((r, i) => (
+                      <tr key={i} style={{ borderBottom: `1px solid ${B.border}` }}>
+                        <td style={{ padding: "8px 12px", color: B.muted, whiteSpace: "nowrap" }}>{r.timestamp}</td>
+                        <td style={{ padding: "8px 12px", color: B.mid }}>{r.mode}</td>
+                        <td style={{ padding: "8px 12px", color: B.mid }}>{r.language}</td>
+                        <td style={{ padding: "8px 12px" }}>
+                          <span style={{ background: B.bgPage, color: B.mid, padding: "2px 8px", borderRadius: 10, fontSize: 11 }}>{r.theme}</span>
+                        </td>
+                        <td style={{ padding: "8px 12px", color: B.black }}>{r.question}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

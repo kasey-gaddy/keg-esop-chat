@@ -1,5 +1,3 @@
-const { getStore } = require("@netlify/blobs");
-
 function classifyTheme(question) {
   const q = question.toLowerCase();
   if (/my (balance|account|shares|statement|value|worth|vested amount|stock)/.test(q) ||
@@ -17,7 +15,7 @@ function classifyTheme(question) {
   return "Other";
 }
 
-exports.handler = async (event, context) => {
+exports.handler = async (event) => {
   const headers = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type",
@@ -33,39 +31,38 @@ exports.handler = async (event, context) => {
     if (!question?.trim()) return { statusCode: 400, headers, body: JSON.stringify({ error: "No question" }) };
 
     const theme = classifyTheme(question);
-    const now = new Date();
-    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const webhookUrl = process.env.GOOGLE_SHEET_WEBHOOK;
 
-    const store = getStore("esop-logs");
+    if (!webhookUrl) {
+      console.log("ESOP_LOG:", JSON.stringify({ theme, mode, language, question }));
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, theme, note: "no webhook configured" }) };
+    }
 
-    // Update monthly summary
-    let summary = null;
-    try { summary = await store.get(`summary-${monthKey}`, { type: "json" }); } catch {}
-    if (!summary) summary = { month: monthKey, total: 0, byTheme: {}, byMode: {}, byLanguage: {}, topQuestions: [] };
+    // Post to Google Apps Script — fire and forget with timeout
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
 
-    summary.total += 1;
-    summary.byTheme[theme] = (summary.byTheme[theme] || 0) + 1;
-    summary.byMode[mode || "unknown"] = (summary.byMode[mode || "unknown"] || 0) + 1;
-    summary.byLanguage[language || "en"] = (summary.byLanguage[language || "en"] || 0) + 1;
-    summary.topQuestions = [
-      { question: question.trim(), theme, mode, language, timestamp: now.toISOString() },
-      ...summary.topQuestions,
-    ].slice(0, 200);
-
-    await store.setJSON(`summary-${monthKey}`, summary);
-
-    // Update month index
-    let index = null;
-    try { index = await store.get("month-index", { type: "json" }); } catch {}
-    if (!index) index = [];
-    if (!index.includes(monthKey)) {
-      index = [monthKey, ...index].sort().reverse();
-      await store.setJSON("month-index", index);
+    try {
+      await fetch(webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: question.trim(),
+          mode: mode || "unknown",
+          language: language || "en",
+          theme,
+        }),
+        signal: controller.signal,
+      });
+    } catch (fetchErr) {
+      console.error("Webhook error:", fetchErr.message);
+    } finally {
+      clearTimeout(timeout);
     }
 
     return { statusCode: 200, headers, body: JSON.stringify({ success: true, theme }) };
   } catch (err) {
-    console.error("log error:", err.message);
+    console.error("log handler error:", err.message);
     return { statusCode: 200, headers, body: JSON.stringify({ success: true, note: err.message }) };
   }
 };
