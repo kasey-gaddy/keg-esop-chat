@@ -13,7 +13,7 @@ export const handler = async (event) => {
   // Password check via Authorization header
   const auth = event.headers["authorization"] || "";
   const token = auth.replace("Bearer ", "").trim();
-  const adminPass = process.env.ADMIN_PASSWORD || "keg-admin-2025";
+  const adminPass = process.env.ADMIN_PASSWORD || "K3&GM@rketing";
 
   if (token !== adminPass) {
     return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
