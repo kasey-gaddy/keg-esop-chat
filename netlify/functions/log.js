@@ -1,3 +1,5 @@
+const { getStore } = require("@netlify/blobs");
+
 function classifyTheme(question) {
   const q = question.toLowerCase();
   if (/my (balance|account|shares|statement|value|worth|vested amount|stock)/.test(q) ||
@@ -10,6 +12,7 @@ function classifyTheme(question) {
   if (/tax|taxes|ira|rollover|withhold|penalty|roth|401k|early withdraw|impuesto/.test(q)) return "Taxes & Distributions";
   if (/blue diamond|bdl|holding company|structure|maddux|parent company/.test(q)) return "BDL / Structure";
   if (/diversif/.test(q)) return "Diversification";
+  if (/rehire|re-hire|come back|return|reemploy|break.in.service/.test(q)) return "Rehire / Return";
   if (/apply|job|career|hire|hiring|work (for|at|there)|position|opening|empleo|trabajo/.test(q)) return "Recruiting / Job Seeker";
   if (/what is|what('s| is) (an|the) esop|how does|explain|tell me|overview|basics|understand|how.*work|what.*mean|employee.?own|qué es|cómo funciona/.test(q)) return "General Education";
   return "Other";
@@ -27,42 +30,62 @@ exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return { statusCode: 405, headers, body: "" };
 
   try {
-    const { question, mode, language } = JSON.parse(event.body || "{}");
+    const { question, mode, language, sessionId } = JSON.parse(event.body || "{}");
     if (!question?.trim()) return { statusCode: 400, headers, body: JSON.stringify({ error: "No question" }) };
 
     const theme = classifyTheme(question);
-    const webhookUrl = process.env.GOOGLE_SHEET_WEBHOOK;
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const entryId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-    if (!webhookUrl) {
-      console.log("ESOP_LOG:", JSON.stringify({ theme, mode, language, question }));
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, theme, note: "no webhook configured" }) };
+    const store = getStore("esop-logs");
+
+    // Save individual entry
+    await store.setJSON(`entry-${entryId}`, {
+      id: entryId,
+      timestamp: now.toISOString(),
+      month: monthKey,
+      mode: mode || "unknown",
+      language: language || "en",
+      theme,
+      question: question.trim(),
+      sessionId: sessionId || "unknown",
+    });
+
+    // Update monthly summary
+    let summary;
+    try { summary = await store.get(`summary-${monthKey}`, { type: "json" }); } catch {}
+    if (!summary) summary = { month: monthKey, total: 0, sessions: [], byTheme: {}, byMode: {}, byLanguage: {}, recentQuestions: [] };
+
+    summary.total += 1;
+    summary.byTheme[theme] = (summary.byTheme[theme] || 0) + 1;
+    summary.byMode[mode || "unknown"] = (summary.byMode[mode || "unknown"] || 0) + 1;
+    summary.byLanguage[language || "en"] = (summary.byLanguage[language || "en"] || 0) + 1;
+
+    // Track unique sessions
+    if (sessionId && !summary.sessions.includes(sessionId)) {
+      summary.sessions = [...summary.sessions, sessionId].slice(-1000);
     }
 
-    // Post to Google Apps Script — fire and forget with timeout
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    summary.recentQuestions = [
+      { question: question.trim(), theme, mode, language, timestamp: now.toISOString(), sessionId },
+      ...summary.recentQuestions,
+    ].slice(0, 500);
 
-    try {
-      await fetch(webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question: question.trim(),
-          mode: mode || "unknown",
-          language: language || "en",
-          theme,
-        }),
-        signal: controller.signal,
-      });
-    } catch (fetchErr) {
-      console.error("Webhook error:", fetchErr.message);
-    } finally {
-      clearTimeout(timeout);
+    await store.setJSON(`summary-${monthKey}`, summary);
+
+    // Update month index
+    let index;
+    try { index = await store.get("month-index", { type: "json" }); } catch {}
+    if (!index) index = [];
+    if (!index.includes(monthKey)) {
+      index = [monthKey, ...index].sort().reverse();
+      await store.setJSON("month-index", index);
     }
 
     return { statusCode: 200, headers, body: JSON.stringify({ success: true, theme }) };
   } catch (err) {
-    console.error("log handler error:", err.message);
+    console.error("log error:", err.message);
     return { statusCode: 200, headers, body: JSON.stringify({ success: true, note: err.message }) };
   }
 };

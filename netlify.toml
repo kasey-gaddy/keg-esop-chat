@@ -6,6 +6,10 @@
 [build.environment]
   NODE_VERSION = "18"
 
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["@netlify/blobs"]
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

@@ -1,38 +1,13 @@
-// Default suggested questions — overridden by CUSTOM_QUESTIONS env var
+const { getStore } = require("@netlify/blobs");
+
 const DEFAULT_QUESTIONS = {
   en: {
-    employee: [
-      "How does the ESOP work?",
-      "When do I start getting vested?",
-      "What if I leave before I'm vested?",
-      "What could my ESOP be worth?",
-      "What is Blue Diamond Legacy Holdings?",
-      "When can I collect my money?",
-    ],
-    prospect: [
-      "What does employee ownership mean for me?",
-      "Do I pay anything to get stock?",
-      "How long until it's mine to keep?",
-      "What could my ESOP be worth?",
-      "What kind of work does KE&G do?",
-    ],
+    employee: ["How does the ESOP work?","When do I start getting vested?","What if I leave before I'm vested?","What could my ESOP be worth?","What is Blue Diamond Legacy Holdings?","When can I collect my money?"],
+    prospect: ["What does employee ownership mean for me?","Do I pay anything to get stock?","How long until it's mine to keep?","What could my ESOP be worth?","What kind of work does KE&G do?"],
   },
   es: {
-    employee: [
-      "¿Cómo funciona el ESOP?",
-      "¿Cuándo empiezo a adquirir derechos?",
-      "¿Qué pasa si me voy antes?",
-      "¿Cuánto podría valer mi ESOP?",
-      "¿Qué es Blue Diamond Legacy Holdings?",
-      "¿Cuándo puedo cobrar mi dinero?",
-    ],
-    prospect: [
-      "¿Qué significa ser propietario empleado?",
-      "¿Pago algo por las acciones?",
-      "¿Cuánto tiempo hasta que sean mías?",
-      "¿Cuánto podría valer mi ESOP?",
-      "¿Qué tipo de trabajo hace KE&G?",
-    ],
+    employee: ["¿Cómo funciona el ESOP?","¿Cuándo empiezo a adquirir derechos?","¿Qué pasa si me voy antes?","¿Cuánto podría valer mi ESOP?","¿Qué es Blue Diamond Legacy Holdings?","¿Cuándo puedo cobrar mi dinero?"],
+    prospect: ["¿Qué significa ser propietario empleado?","¿Pago algo por las acciones?","¿Cuánto tiempo hasta que sean mías?","¿Cuánto podría valer mi ESOP?","¿Qué tipo de trabajo hace KE&G?"],
   },
 };
 
@@ -46,94 +21,111 @@ exports.handler = async (event) => {
 
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers, body: "" };
 
-  // Password check
   const auth = event.headers["authorization"] || "";
   const token = auth.replace("Bearer ", "").trim();
-  const adminPass = process.env.ADMIN_PASSWORD || "K3&GM@rketing";
+  const adminPass = process.env.ADMIN_PASSWORD || "K3&GMarketing";
 
   if (token !== adminPass) {
     return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
   }
 
-  // GET — return current config + sheet log data
+  const logStore = getStore("esop-logs");
+  const configStore = getStore("esop-config");
+
+  // GET — return analytics + config
   if (event.httpMethod === "GET") {
     try {
-      // Load custom questions (stored as JSON in env var)
+      // Load month index
+      let monthIndex;
+      try { monthIndex = await logStore.get("month-index", { type: "json" }); } catch {}
+      if (!monthIndex) monthIndex = [];
+
+      const recentMonths = monthIndex.slice(0, 12);
+
+      // Load summaries
+      const summaries = await Promise.all(
+        recentMonths.map(async (m) => {
+          try {
+            const s = await logStore.get(`summary-${m}`, { type: "json" });
+            return s || { month: m, total: 0, sessions: [], byTheme: {}, byMode: {}, byLanguage: {}, recentQuestions: [] };
+          } catch {
+            return { month: m, total: 0, sessions: [], byTheme: {}, byMode: {}, byLanguage: {}, recentQuestions: [] };
+          }
+        })
+      );
+
+      // Aggregate totals
+      const agg = { total: 0, uniqueSessions: new Set(), byTheme: {}, byMode: {}, byLanguage: {} };
+      summaries.forEach(s => {
+        agg.total += s.total || 0;
+        (s.sessions || []).forEach(sid => agg.uniqueSessions.add(sid));
+        Object.entries(s.byTheme || {}).forEach(([k, v]) => { agg.byTheme[k] = (agg.byTheme[k] || 0) + v; });
+        Object.entries(s.byMode || {}).forEach(([k, v]) => { agg.byMode[k] = (agg.byMode[k] || 0) + v; });
+        Object.entries(s.byLanguage || {}).forEach(([k, v]) => { agg.byLanguage[k] = (agg.byLanguage[k] || 0) + v; });
+      });
+
+      // Load custom questions
       let questions = DEFAULT_QUESTIONS;
       try {
-        const custom = process.env.CUSTOM_QUESTIONS;
-        if (custom) questions = JSON.parse(custom);
+        const custom = await configStore.get("custom-questions", { type: "json" });
+        if (custom) questions = custom;
       } catch {}
 
-      // Fetch recent log data from Google Sheet via Apps Script
-      const webhookUrl = process.env.GOOGLE_SHEET_WEBHOOK;
-      let logData = { rows: [], summary: { total: 0, byTheme: {}, byMode: {}, byLanguage: {}, byMonth: {} } };
-
-      if (webhookUrl) {
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 8000);
-          const res = await fetch(webhookUrl + "?action=getData", {
-            signal: controller.signal,
-          });
-          clearTimeout(timeout);
-          if (res.ok) {
-            const text = await res.text();
-            try { logData = JSON.parse(text); } catch {}
-          }
-        } catch (fetchErr) {
-          console.error("Sheet fetch error:", fetchErr.message);
-        }
-      }
+      // Load doc index
+      let docIndex = { docs: [] };
+      try {
+        const docStore = getStore("esop-docs");
+        const di = await docStore.get("doc-index", { type: "json" });
+        if (di) docIndex = di;
+      } catch {}
 
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ questions, logData, hasWebhook: !!webhookUrl }),
+        body: JSON.stringify({
+          monthIndex: recentMonths,
+          summaries,
+          aggregate: {
+            total: agg.total,
+            uniqueSessions: agg.uniqueSessions.size,
+            byTheme: agg.byTheme,
+            byMode: agg.byMode,
+            byLanguage: agg.byLanguage,
+          },
+          recentQuestions: summaries.flatMap(s => s.recentQuestions || []).slice(0, 100),
+          questions,
+          docIndex,
+        }),
       };
     } catch (err) {
+      console.error("admin GET error:", err.message);
       return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
     }
   }
 
-  // POST — save updated questions to env var via Netlify API
+  // POST — save questions or delete doc
   if (event.httpMethod === "POST") {
     try {
-      const { questions } = JSON.parse(event.body || "{}");
-      if (!questions) return { statusCode: 400, headers, body: JSON.stringify({ error: "No questions provided" }) };
+      const body = JSON.parse(event.body || "{}");
 
-      const siteId = process.env.NETLIFY_SITE_ID;
-      const netlifyToken = process.env.NETLIFY_API_TOKEN;
-
-      if (!siteId || !netlifyToken) {
-        // Can't save to env — return instructions
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify({
-            success: false,
-            note: "To enable saving, add NETLIFY_SITE_ID and NETLIFY_API_TOKEN to your environment variables.",
-            questions,
-          }),
-        };
+      if (body.action === "saveQuestions") {
+        await configStore.setJSON("custom-questions", body.questions);
+        return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
       }
 
-      // Update CUSTOM_QUESTIONS env var via Netlify API
-      const res = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/env/CUSTOM_QUESTIONS`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${netlifyToken}`,
-        },
-        body: JSON.stringify({ key: "CUSTOM_QUESTIONS", values: [{ value: JSON.stringify(questions), context: "all" }] }),
-      });
-
-      if (!res.ok) {
-        const err = await res.text();
-        return { statusCode: 200, headers, body: JSON.stringify({ success: false, note: err }) };
+      if (body.action === "deleteDoc") {
+        const docStore = getStore("esop-docs");
+        let index;
+        try { index = await docStore.get("doc-index", { type: "json" }); } catch {}
+        if (index) {
+          index.docs = (index.docs || []).filter(d => d.id !== body.docId);
+          await docStore.setJSON("doc-index", index);
+          try { await docStore.delete(`doc-${body.docId}`); } catch {}
+        }
+        return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
       }
 
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, questions }) };
+      return { statusCode: 400, headers, body: JSON.stringify({ error: "Unknown action" }) };
     } catch (err) {
       return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
     }
