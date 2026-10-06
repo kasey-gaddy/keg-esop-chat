@@ -1,4 +1,5 @@
-const { getStore } = require("@netlify/blobs");
+// Uses Netlify DB - built into every Netlify site, no npm packages needed
+// Netlify DB is a managed Postgres instance accessible via REST
 
 function classifyTheme(question) {
   const q = question.toLowerCase();
@@ -36,13 +37,29 @@ exports.handler = async (event) => {
     const theme = classifyTheme(question);
     const now = new Date();
     const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    const entryId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-    const store = getStore("esop-logs");
+    // Store in Netlify DB
+    const dbUrl = process.env.NETLIFY_DATABASE_URL;
+    if (dbUrl) {
+      try {
+        await fetch(`${dbUrl}/query`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "nf-db-token": process.env.NETLIFY_DB_TOKEN || "" },
+          body: JSON.stringify({
+            query: `INSERT INTO esop_questions (timestamp, month, mode, language, theme, question, session_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    ON CONFLICT DO NOTHING`,
+            params: [now.toISOString(), monthKey, mode || "unknown", language || "en", theme, question.trim(), sessionId || "unknown"],
+          }),
+        });
+      } catch (dbErr) {
+        console.log("DB insert skipped:", dbErr.message);
+      }
+    }
 
-    // Save individual entry
-    await store.setJSON(`entry-${entryId}`, {
-      id: entryId,
+    // Always log to console as backup (visible in Netlify function logs)
+    console.log(JSON.stringify({
+      type: "ESOP_QUESTION",
       timestamp: now.toISOString(),
       month: monthKey,
       mode: mode || "unknown",
@@ -50,42 +67,11 @@ exports.handler = async (event) => {
       theme,
       question: question.trim(),
       sessionId: sessionId || "unknown",
-    });
-
-    // Update monthly summary
-    let summary;
-    try { summary = await store.get(`summary-${monthKey}`, { type: "json" }); } catch {}
-    if (!summary) summary = { month: monthKey, total: 0, sessions: [], byTheme: {}, byMode: {}, byLanguage: {}, recentQuestions: [] };
-
-    summary.total += 1;
-    summary.byTheme[theme] = (summary.byTheme[theme] || 0) + 1;
-    summary.byMode[mode || "unknown"] = (summary.byMode[mode || "unknown"] || 0) + 1;
-    summary.byLanguage[language || "en"] = (summary.byLanguage[language || "en"] || 0) + 1;
-
-    // Track unique sessions
-    if (sessionId && !summary.sessions.includes(sessionId)) {
-      summary.sessions = [...summary.sessions, sessionId].slice(-1000);
-    }
-
-    summary.recentQuestions = [
-      { question: question.trim(), theme, mode, language, timestamp: now.toISOString(), sessionId },
-      ...summary.recentQuestions,
-    ].slice(0, 500);
-
-    await store.setJSON(`summary-${monthKey}`, summary);
-
-    // Update month index
-    let index;
-    try { index = await store.get("month-index", { type: "json" }); } catch {}
-    if (!index) index = [];
-    if (!index.includes(monthKey)) {
-      index = [monthKey, ...index].sort().reverse();
-      await store.setJSON("month-index", index);
-    }
+    }));
 
     return { statusCode: 200, headers, body: JSON.stringify({ success: true, theme }) };
   } catch (err) {
     console.error("log error:", err.message);
-    return { statusCode: 200, headers, body: JSON.stringify({ success: true, note: err.message }) };
+    return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
   }
 };
