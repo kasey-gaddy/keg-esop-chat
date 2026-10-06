@@ -1,4 +1,6 @@
-const { getStore } = require("@netlify/blobs");
+// Document upload handler
+// Stores document text content via Netlify API env vars
+// No @netlify/blobs — just fetch calls
 
 exports.handler = async (event) => {
   const headers = {
@@ -14,41 +16,59 @@ exports.handler = async (event) => {
   const auth = event.headers["authorization"] || "";
   const token = auth.replace("Bearer ", "").trim();
   const adminPass = process.env.ADMIN_PASSWORD || "K3&GMarketing";
-
-  if (token !== adminPass) {
-    return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
-  }
+  if (token !== adminPass) return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
 
   try {
     const { name, content, fileType } = JSON.parse(event.body || "{}");
-    if (!name || !content) {
-      return { statusCode: 400, headers, body: JSON.stringify({ error: "Name and content required" }) };
+    if (!name || !content) return { statusCode: 400, headers, body: JSON.stringify({ error: "Name and content required" }) };
+
+    // Load existing docs from env var
+    let docs = [];
+    try {
+      const raw = process.env.CUSTOM_DOCS;
+      if (raw) docs = JSON.parse(raw);
+    } catch {}
+
+    // Add new doc (store up to 10 docs, truncate content to 50KB each to stay under env var limits)
+    const docId = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const truncatedContent = content.slice(0, 50000);
+    docs = [
+      { id: docId, name, fileType, uploadedAt: new Date().toISOString(), size: content.length, content: truncatedContent },
+      ...docs,
+    ].slice(0, 10);
+
+    // Save back to Netlify env var
+    const siteId = process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
+    const netlifyToken = process.env.NETLIFY_API_TOKEN;
+
+    if (!siteId || !netlifyToken) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: "Add NETLIFY_SITE_ID and NETLIFY_API_TOKEN to your environment variables to enable document storage.",
+        }),
+      };
     }
 
-    const docId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const store = getStore("esop-docs");
+    const res = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/env/CUSTOM_DOCS`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${netlifyToken}` },
+      body: JSON.stringify({
+        key: "CUSTOM_DOCS",
+        values: [{ value: JSON.stringify(docs.map(d => ({ ...d, content: d.content }))), context: "all" }],
+      }),
+    });
 
-    // Store document content as plain text
-    await store.set(`doc-${docId}`, content, { metadata: { name, fileType } });
+    if (!res.ok) {
+      const errText = await res.text();
+      return { statusCode: 200, headers, body: JSON.stringify({ success: false, error: errText }) };
+    }
 
-    // Update index
-    let index;
-    try { index = await store.get("doc-index", { type: "json" }); } catch {}
-    if (!index) index = { docs: [] };
-
-    index.docs = [
-      { id: docId, name, fileType, uploadedAt: new Date().toISOString(), size: content.length },
-      ...index.docs,
-    ];
-    await store.setJSON("doc-index", index);
-
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ success: true, docId, name }),
-    };
+    return { statusCode: 200, headers, body: JSON.stringify({ success: true, docId, name }) };
   } catch (err) {
-    console.error("upload error:", err.message);
+    console.error("upload-doc error:", err.message);
     return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
   }
 };
