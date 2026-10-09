@@ -1,9 +1,11 @@
-async function netlifyApiRequest(method, path, body) {
+async function netlifyApiRequest(method, path, body, queryParams) {
   const siteId = process.env.NETLIFY_SITE_ID
   const token = process.env.NETLIFY_API_TOKEN
   if (!siteId || !token) return null
 
-  const url = `https://api.netlify.com/api/v1/sites/${siteId}${path}`
+  let url = `https://api.netlify.com/api/v1/sites/${siteId}${path}`
+  if (queryParams) url += '?' + new URLSearchParams(queryParams).toString()
+
   const opts = {
     method,
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -24,7 +26,22 @@ async function netlifyApiRequest(method, path, body) {
   }
 }
 
+async function getAccountId(token) {
+  try {
+    const r = await fetch('https://api.netlify.com/api/v1/accounts', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!r.ok) return null
+    const accounts = await r.json()
+    return accounts?.[0]?.id || null
+  } catch (e) {
+    return null
+  }
+}
+
 async function saveCustomDocs(docs) {
+  const token = process.env.NETLIFY_API_TOKEN
+  const accountId = await getAccountId(token)
   const value = JSON.stringify(docs)
   const payload = {
     key: 'CUSTOM_DOCS',
@@ -32,8 +49,8 @@ async function saveCustomDocs(docs) {
     values: [{ context: 'all', value }],
   }
 
-  // Try POST (create new var), fall back to PATCH (update existing)
-  const postResult = await netlifyApiRequest('POST', '/env', [payload])
+  // POST requires account_id query param to create; PATCH to update existing
+  const postResult = await netlifyApiRequest('POST', '/env', [payload], accountId ? { account_id: accountId } : undefined)
   if (postResult) return true
 
   const patchResult = await netlifyApiRequest('PATCH', '/env/CUSTOM_DOCS', payload)

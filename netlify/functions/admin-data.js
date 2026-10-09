@@ -1,14 +1,16 @@
-async function netlifyApiRequest(method, path, body) {
+async function netlifyApiRequest(method, path, body, queryParams) {
   const siteId = process.env.NETLIFY_SITE_ID
   const token = process.env.NETLIFY_API_TOKEN
   if (!siteId || !token) return null
 
-  const url = `https://api.netlify.com/api/v1/sites/${siteId}${path}`
+  let url = `https://api.netlify.com/api/v1/sites/${siteId}${path}`
+  if (queryParams) url += '?' + new URLSearchParams(queryParams).toString()
+
   const opts = {
     method,
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
   }
-  if (body) opts.body = JSON.stringify(body)
+  if (body !== undefined) opts.body = JSON.stringify(body)
 
   try {
     const r = await fetch(url, opts)
@@ -24,19 +26,32 @@ async function netlifyApiRequest(method, path, body) {
   }
 }
 
-async function upsertEnvVar(key, value) {
-  const siteId = process.env.NETLIFY_SITE_ID
-  const token = process.env.NETLIFY_API_TOKEN
-  if (!siteId || !token) return false
+async function getAccountId(token) {
+  try {
+    const r = await fetch('https://api.netlify.com/api/v1/accounts', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!r.ok) return null
+    const accounts = await r.json()
+    return accounts?.[0]?.id || null
+  } catch (e) {
+    return null
+  }
+}
 
+async function upsertEnvVar(key, value) {
+  const token = process.env.NETLIFY_API_TOKEN
+  if (!process.env.NETLIFY_SITE_ID || !token) return false
+
+  const accountId = await getAccountId(token)
   const payload = {
     key,
     scopes: ['builds', 'functions', 'runtime'],
     values: [{ context: 'all', value }],
   }
 
-  // Try POST first (create), then PATCH (update) if it already exists
-  const postResult = await netlifyApiRequest('POST', '/env', [payload])
+  // POST requires account_id query param to create; PATCH to update existing
+  const postResult = await netlifyApiRequest('POST', '/env', [payload], accountId ? { account_id: accountId } : undefined)
   if (postResult) return true
 
   const patchResult = await netlifyApiRequest('PATCH', `/env/${key}`, payload)
