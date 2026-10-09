@@ -1,6 +1,14 @@
 // Admin data handler — uses Netlify Blobs for storage (free, no API token needed)
 const { getStore } = require("@netlify/blobs");
 
+function getBlobStore(name) {
+  return getStore({
+    name,
+    siteID: process.env.NETLIFY_SITE_ID,
+    token: process.env.NETLIFY_API_TOKEN,
+  });
+}
+
 const DEFAULT_QUESTIONS = {
   en: {
     employee: ["How does the ESOP work?","When do I start getting vested?","What if I leave before I'm vested?","What could my ESOP be worth?","What is Blue Diamond Legacy Holdings?","When can I collect my money?"],
@@ -18,7 +26,7 @@ function getAdminPass() {
 
 async function getQuestions() {
   try {
-    const store = getStore("esop-config");
+    const store = getBlobStore("esop-config");
     const raw = await store.get("questions");
     if (raw) return JSON.parse(raw);
   } catch {}
@@ -27,7 +35,7 @@ async function getQuestions() {
 
 async function getDocs() {
   try {
-    const store = getStore("esop-docs");
+    const store = getBlobStore("esop-docs");
     const raw = await store.get("index");
     if (raw) return JSON.parse(raw);
   } catch {}
@@ -167,13 +175,13 @@ exports.handler = async (event) => {
       const body = JSON.parse(event.body || "{}");
 
       if (body.action === "saveQuestions") {
-        const store = getStore("esop-config");
+        const store = getBlobStore("esop-config");
         await store.set("questions", JSON.stringify(body.questions));
         return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
       }
 
       if (body.action === "saveDocs") {
-        const store = getStore("esop-docs");
+        const store = getBlobStore("esop-docs");
         await store.set("index", JSON.stringify(body.docs));
         return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
       }

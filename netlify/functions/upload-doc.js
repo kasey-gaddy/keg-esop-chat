@@ -1,6 +1,14 @@
 // Document upload handler — uses Netlify Blobs for storage (free, no API token needed)
 const { getStore } = require("@netlify/blobs");
 
+function getBlobStore(name) {
+  return getStore({
+    name,
+    siteID: process.env.NETLIFY_SITE_ID,
+    token: process.env.NETLIFY_API_TOKEN,
+  });
+}
+
 exports.handler = async (event) => {
   const headers = {
     "Access-Control-Allow-Origin": "*",
@@ -16,7 +24,7 @@ exports.handler = async (event) => {
   const adminPass = process.env.ADMIN_PASSWORD || "K3&GMarketing";
   if (token !== adminPass) return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
 
-  const store = getStore("esop-docs");
+  const store = getBlobStore("esop-docs");
 
   if (event.httpMethod === "POST") {
     try {
