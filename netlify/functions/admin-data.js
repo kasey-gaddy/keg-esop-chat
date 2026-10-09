@@ -1,37 +1,5 @@
-async function getAccountId(token) {
-  try {
-    const r = await fetch("https://api.netlify.com/api/v1/accounts", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!r.ok) return null;
-    const accounts = await r.json();
-    return accounts?.[0]?.id || null;
-  } catch (e) {
-    return null;
-  }
-}
-
-async function upsertEnvVar(siteId, token, key, value) {
-  const accountId = await getAccountId(token);
-  const payload = { key, scopes: ["builds", "functions", "runtime"], values: [{ context: "all", value }] };
-
-  const postUrl = accountId
-    ? `https://api.netlify.com/api/v1/sites/${siteId}/env?account_id=${accountId}`
-    : `https://api.netlify.com/api/v1/sites/${siteId}/env`;
-  const postRes = await fetch(postUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify([payload]),
-  });
-  if (postRes.ok) return true;
-
-  const patchRes = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/env/${key}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify(payload),
-  });
-  return patchRes.ok;
-}
+// Admin data handler — uses Netlify Blobs for storage (free, no API token needed)
+const { getStore } = require("@netlify/blobs");
 
 const DEFAULT_QUESTIONS = {
   en: {
@@ -44,32 +12,28 @@ const DEFAULT_QUESTIONS = {
   },
 };
 
-// In-memory config store (persists per function instance)
-// For questions and docs we use env vars as the persistent layer
-const configCache = {};
-
 function getAdminPass() {
   return process.env.ADMIN_PASSWORD || "K3&GMarketing";
 }
 
-function getQuestions() {
+async function getQuestions() {
   try {
-    const raw = process.env.CUSTOM_QUESTIONS;
+    const store = getStore("esop-config");
+    const raw = await store.get("questions");
     if (raw) return JSON.parse(raw);
   } catch {}
   return DEFAULT_QUESTIONS;
 }
 
-function getDocs() {
+async function getDocs() {
   try {
-    const raw = process.env.CUSTOM_DOCS;
+    const store = getStore("esop-docs");
+    const raw = await store.get("index");
     if (raw) return JSON.parse(raw);
   } catch {}
   return [];
 }
 
-// Parse console logs from Netlify function logs for analytics
-// Since we always console.log questions, we can read them back
 async function getLogData() {
   const dbUrl = process.env.NETLIFY_DATABASE_URL;
   if (!dbUrl) {
@@ -118,7 +82,6 @@ function buildSummary(rows) {
     if (!summary.uniqueSessions[r.month]) summary.uniqueSessions[r.month] = new Set();
     summary.uniqueSessions[r.month].add(r.sessionId);
   });
-  // Convert sets to counts
   Object.keys(summary.uniqueSessions).forEach(m => {
     summary.uniqueSessions[m] = summary.uniqueSessions[m].size;
   });
@@ -135,7 +98,6 @@ exports.handler = async (event) => {
 
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers, body: "" };
 
-  // Auth check — skip for public questions endpoint
   const auth = event.headers["authorization"] || "";
   const token = auth.replace("Bearer ", "").trim();
   const isPublic = token === "__public__";
@@ -145,21 +107,17 @@ exports.handler = async (event) => {
     return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
   }
 
-  // GET
   if (event.httpMethod === "GET") {
     try {
-      const questions = getQuestions();
+      const questions = await getQuestions();
 
-      // Public endpoint only returns questions
       if (isPublic) {
         return { statusCode: 200, headers, body: JSON.stringify({ questions }) };
       }
 
-      // Admin gets everything
       const logData = await getLogData();
-      const docs = getDocs();
+      const docs = await getDocs();
 
-      // Build month-by-month summaries from rows
       const monthMap = {};
       logData.rows.forEach(r => {
         if (!monthMap[r.month]) monthMap[r.month] = { month: r.month, total: 0, byTheme: {}, byMode: {}, byLanguage: {}, sessions: new Set(), recentQuestions: [] };
@@ -175,7 +133,6 @@ exports.handler = async (event) => {
       const summaries = Object.values(monthMap).map(m => ({ ...m, uniqueSessions: m.sessions.size, sessions: undefined })).sort((a, b) => b.month.localeCompare(a.month));
       const monthIndex = summaries.map(s => s.month);
 
-      // Aggregate totals
       const aggregate = {
         total: logData.summary.total,
         uniqueSessions: Object.values(logData.summary.uniqueSessions).reduce((a, b) => a + b, 0),
@@ -203,7 +160,6 @@ exports.handler = async (event) => {
     }
   }
 
-  // POST — admin only
   if (!isAdmin) return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
 
   if (event.httpMethod === "POST") {
@@ -211,21 +167,15 @@ exports.handler = async (event) => {
       const body = JSON.parse(event.body || "{}");
 
       if (body.action === "saveQuestions") {
-        const siteId = process.env.SITE_ID || process.env.NETLIFY_SITE_ID;
-        const netlifyToken = process.env.NETLIFY_API_TOKEN;
-        const ok = siteId && netlifyToken
-          ? await upsertEnvVar(siteId, netlifyToken, "CUSTOM_QUESTIONS", JSON.stringify(body.questions))
-          : false;
-        return { statusCode: 200, headers, body: JSON.stringify({ success: ok }) };
+        const store = getStore("esop-config");
+        await store.set("questions", JSON.stringify(body.questions));
+        return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
       }
 
       if (body.action === "saveDocs") {
-        const siteId = process.env.SITE_ID || process.env.NETLIFY_SITE_ID;
-        const netlifyToken = process.env.NETLIFY_API_TOKEN;
-        const ok = siteId && netlifyToken
-          ? await upsertEnvVar(siteId, netlifyToken, "CUSTOM_DOCS", JSON.stringify(body.docs))
-          : false;
-        return { statusCode: 200, headers, body: JSON.stringify({ success: ok }) };
+        const store = getStore("esop-docs");
+        await store.set("index", JSON.stringify(body.docs));
+        return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
       }
 
       return { statusCode: 400, headers, body: JSON.stringify({ error: "Unknown action" }) };
