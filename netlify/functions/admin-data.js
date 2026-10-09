@@ -135,7 +135,7 @@ exports.handler = async (event) => {
         headers,
         body: JSON.stringify({
           questions,
-          docs,
+          docIndex: { docs },
           monthIndex,
           summaries,
           aggregate,
