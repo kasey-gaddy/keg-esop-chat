@@ -33,6 +33,12 @@ async function upsertEnvVar(siteId, token, key, value) {
   console.log("POST result:", postRes.status, postText.slice(0, 300));
   if (postRes.ok) return true;
 
+  // Try GET first to confirm site is reachable
+  const getRes = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  console.log("GET site result:", getRes.status, (await getRes.text()).slice(0, 200));
+
   const patchRes = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/env/${key}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
