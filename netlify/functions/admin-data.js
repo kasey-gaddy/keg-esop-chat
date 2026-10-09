@@ -1,3 +1,38 @@
+async function getAccountId(token) {
+  try {
+    const r = await fetch("https://api.netlify.com/api/v1/accounts", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) return null;
+    const accounts = await r.json();
+    return accounts?.[0]?.id || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function upsertEnvVar(siteId, token, key, value) {
+  const accountId = await getAccountId(token);
+  const payload = { key, scopes: ["builds", "functions", "runtime"], values: [{ context: "all", value }] };
+
+  const postUrl = accountId
+    ? `https://api.netlify.com/api/v1/sites/${siteId}/env?account_id=${accountId}`
+    : `https://api.netlify.com/api/v1/sites/${siteId}/env`;
+  const postRes = await fetch(postUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify([payload]),
+  });
+  if (postRes.ok) return true;
+
+  const patchRes = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/env/${key}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  return patchRes.ok;
+}
+
 const DEFAULT_QUESTIONS = {
   en: {
     employee: ["How does the ESOP work?","When do I start getting vested?","What if I leave before I'm vested?","What could my ESOP be worth?","What is Blue Diamond Legacy Holdings?","When can I collect my money?"],
@@ -176,30 +211,21 @@ exports.handler = async (event) => {
       const body = JSON.parse(event.body || "{}");
 
       if (body.action === "saveQuestions") {
-        // Save to env var via Netlify API
         const siteId = process.env.SITE_ID || process.env.NETLIFY_SITE_ID;
         const netlifyToken = process.env.NETLIFY_API_TOKEN;
-        if (siteId && netlifyToken) {
-          await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/env/CUSTOM_QUESTIONS`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${netlifyToken}` },
-            body: JSON.stringify({ key: "CUSTOM_QUESTIONS", values: [{ value: JSON.stringify(body.questions), context: "all" }] }),
-          });
-        }
-        return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+        const ok = siteId && netlifyToken
+          ? await upsertEnvVar(siteId, netlifyToken, "CUSTOM_QUESTIONS", JSON.stringify(body.questions))
+          : false;
+        return { statusCode: 200, headers, body: JSON.stringify({ success: ok }) };
       }
 
       if (body.action === "saveDocs") {
         const siteId = process.env.SITE_ID || process.env.NETLIFY_SITE_ID;
         const netlifyToken = process.env.NETLIFY_API_TOKEN;
-        if (siteId && netlifyToken) {
-          await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/env/CUSTOM_DOCS`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${netlifyToken}` },
-            body: JSON.stringify({ key: "CUSTOM_DOCS", values: [{ value: JSON.stringify(body.docs), context: "all" }] }),
-          });
-        }
-        return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+        const ok = siteId && netlifyToken
+          ? await upsertEnvVar(siteId, netlifyToken, "CUSTOM_DOCS", JSON.stringify(body.docs))
+          : false;
+        return { statusCode: 200, headers, body: JSON.stringify({ success: ok }) };
       }
 
       return { statusCode: 400, headers, body: JSON.stringify({ error: "Unknown action" }) };

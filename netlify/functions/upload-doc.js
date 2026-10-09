@@ -2,6 +2,42 @@
 // Stores document text content via Netlify API env vars
 // No @netlify/blobs — just fetch calls
 
+async function getAccountId(token) {
+  try {
+    const r = await fetch("https://api.netlify.com/api/v1/accounts", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) return null;
+    const accounts = await r.json();
+    return accounts?.[0]?.id || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function upsertEnvVar(siteId, token, key, value) {
+  const accountId = await getAccountId(token);
+  const payload = { key, scopes: ["builds", "functions", "runtime"], values: [{ context: "all", value }] };
+
+  // POST to create (requires account_id), PATCH to update existing
+  const postUrl = accountId
+    ? `https://api.netlify.com/api/v1/sites/${siteId}/env?account_id=${accountId}`
+    : `https://api.netlify.com/api/v1/sites/${siteId}/env`;
+  const postRes = await fetch(postUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify([payload]),
+  });
+  if (postRes.ok) return true;
+
+  const patchRes = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/env/${key}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  return patchRes.ok;
+}
+
 exports.handler = async (event) => {
   const headers = {
     "Access-Control-Allow-Origin": "*",
@@ -52,18 +88,9 @@ exports.handler = async (event) => {
       };
     }
 
-    const res = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/env/CUSTOM_DOCS`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${netlifyToken}` },
-      body: JSON.stringify({
-        key: "CUSTOM_DOCS",
-        values: [{ value: JSON.stringify(docs.map(d => ({ ...d, content: d.content }))), context: "all" }],
-      }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      return { statusCode: 200, headers, body: JSON.stringify({ success: false, error: errText }) };
+    const saved = await upsertEnvVar(siteId, netlifyToken, "CUSTOM_DOCS", JSON.stringify(docs.map(d => ({ ...d, content: d.content }))));
+    if (!saved) {
+      return { statusCode: 200, headers, body: JSON.stringify({ success: false, error: "Failed to save document." }) };
     }
 
     return { statusCode: 200, headers, body: JSON.stringify({ success: true, docId, name }) };
