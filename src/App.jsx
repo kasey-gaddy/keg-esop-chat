@@ -83,7 +83,7 @@ function WealthCalculator({ onClose }) {
       <div style={{ background: C.white, borderRadius: 12, width: '100%', maxWidth: 560, maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
         <div style={{ background: headerGrad, padding: '16px 20px', borderRadius: '12px 12px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ color: C.white, fontWeight: 700, fontSize: 18 }}>Ownership Value Calculator</div>
+            <div style={{ color: C.white, fontWeight: 700, fontSize: 22, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: '0.03em' }}>Ownership Value Calculator</div>
             <div style={{ color: C.gray, fontSize: 12, fontStyle: 'italic', fontFamily: "'Mr Dafoe', cursive" }}>Constructing Legacies.</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: C.white, fontSize: 22, cursor: 'pointer', opacity: 0.8 }}>✕</button>
@@ -216,7 +216,7 @@ function AdminDashboard({ onLogout }) {
   return (
     <div style={{ minHeight: '100vh', background: C.lightBg }}>
       <div style={{ background: headerGrad, padding: '14px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ color: C.white, fontWeight: 700, fontSize: 18 }}>ESOP Chat Admin</div>
+        <div style={{ color: C.white, fontWeight: 700, fontSize: 22, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: '0.03em' }}>ESOP Chat Admin</div>
         <button onClick={onLogout} style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)', color: C.white, padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>Log Out</button>
       </div>
       <div style={{ display: 'flex', gap: 0, borderBottom: `3px solid ${C.blue}`, background: C.white }}>
@@ -385,7 +385,7 @@ function AdminLogin({ onSuccess }) {
       <div style={{ background: C.white, borderRadius: 12, padding: 40, width: '100%', maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{ width: 52, height: 52, background: headerGrad, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px', fontSize: 22 }}>🔒</div>
-          <h2 style={{ margin: 0, color: C.navy }}>Admin Access</h2>
+          <h2 style={{ margin: 0, color: C.navy, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: '0.02em' }}>Admin Access</h2>
           <p style={{ color: '#666', fontSize: 14, margin: '4px 0 0' }}>ESOP Chat Dashboard</p>
         </div>
         <form onSubmit={submit}>
@@ -430,7 +430,7 @@ function ModeSelect({ onSelect }) {
     <div style={{ minHeight: '100vh', background: C.lightBg, display: 'flex', flexDirection: 'column' }}>
       <div style={{ background: headerGrad, padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <div style={{ color: C.white, fontWeight: 700, fontSize: 18 }}>{t.title}</div>
+          <div style={{ color: C.white, fontWeight: 700, fontSize: 22, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: '0.03em' }}>{t.title}</div>
           <div style={{ color: C.gray, fontSize: 12, fontStyle: 'italic', fontFamily: "'Mr Dafoe', cursive" }}>{t.sub}</div>
         </div>
         <button onClick={() => setLang(l => l === 'en' ? 'es' : 'en')}
@@ -443,7 +443,7 @@ function ModeSelect({ onSelect }) {
         <div style={{ width: 64, height: 64, background: headerGrad, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20, flexShrink: 0 }}>
           <span style={{ color: C.white, fontWeight: 800, fontSize: 26, letterSpacing: '-1px', fontFamily: 'sans-serif' }}>K</span>
         </div>
-        <h2 style={{ margin: '0 0 8px', color: C.navy, fontSize: 22, fontWeight: 700, textAlign: 'center', fontFamily: "'Inter', sans-serif" }}>{t.q}</h2>
+        <h2 style={{ margin: '0 0 8px', color: C.navy, fontSize: 24, fontWeight: 700, textAlign: 'center', fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: '0.01em' }}>{t.q}</h2>
         <p style={{ color: '#777', fontSize: 14, marginBottom: 32, textAlign: 'center', margin: '0 0 32px' }}>KE&amp;G Construction &mdash; 100% Employee-Owned Since 2014</p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 400 }}>
@@ -460,12 +460,12 @@ function ModeSelect({ onSelect }) {
                 cursor: 'pointer',
                 textAlign: 'left',
                 boxShadow: '0 2px 10px rgba(0,0,0,0.07)',
-                fontFamily: "'Inter', sans-serif",
+                fontFamily: "'Barlow', sans-serif",
               }}
               onMouseEnter={e => { e.currentTarget.style.background = accent; e.currentTarget.querySelector('.card-title').style.color = C.white; e.currentTarget.querySelector('.card-desc').style.color = 'rgba(255,255,255,0.85)' }}
               onMouseLeave={e => { e.currentTarget.style.background = C.white; e.currentTarget.querySelector('.card-title').style.color = accent; e.currentTarget.querySelector('.card-desc').style.color = '#555' }}
             >
-              <div className="card-title" style={{ fontWeight: 700, fontSize: 15, color: accent, marginBottom: 4 }}>
+              <div className="card-title" style={{ fontWeight: 700, fontSize: 16, color: accent, marginBottom: 4, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: '0.02em' }}>
                 {t[m].label}
               </div>
               <div className="card-desc" style={{ fontSize: 13, color: '#555', lineHeight: 1.5 }}>{t[m].desc}</div>
@@ -566,13 +566,13 @@ export default function App() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: C.lightBg, display: 'flex', flexDirection: 'column', fontFamily: "'Inter', sans-serif" }}>
+    <div style={{ minHeight: '100vh', background: C.lightBg, display: 'flex', flexDirection: 'column', fontFamily: "'Barlow', sans-serif" }}>
       {showCalc && <WealthCalculator onClose={() => setShowCalc(false)} />}
 
       {/* Header */}
       <div style={{ background: headerGrad, padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
         <div>
-          <div style={{ color: C.white, fontWeight: 700, fontSize: 17 }}>
+          <div style={{ color: C.white, fontWeight: 700, fontSize: 20, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: '0.03em' }}>
             {lang === 'es' ? 'Asistente de Propiedad ESOP' : 'ESOP Ownership Assistant'}
           </div>
           <div style={{ color: C.gray, fontSize: 12 }}>
