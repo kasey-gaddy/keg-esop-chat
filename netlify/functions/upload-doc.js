@@ -1,125 +1,74 @@
-async function netlifyApiRequest(method, path, body, queryParams) {
-  const siteId = process.env.NETLIFY_SITE_ID
-  const token = process.env.NETLIFY_API_TOKEN
-  if (!siteId || !token) return null
-
-  let url = `https://api.netlify.com/api/v1/sites/${siteId}${path}`
-  if (queryParams) url += '?' + new URLSearchParams(queryParams).toString()
-
-  const opts = {
-    method,
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-  }
-  if (body !== undefined) opts.body = JSON.stringify(body)
-
-  try {
-    const r = await fetch(url, opts)
-    if (!r.ok) {
-      const txt = await r.text().catch(() => '')
-      console.error('Netlify API error:', r.status, txt)
-      return null
-    }
-    return r.json()
-  } catch (e) {
-    console.error('Netlify API fetch error:', e.message)
-    return null
-  }
-}
-
-async function getAccountId(token) {
-  try {
-    const r = await fetch('https://api.netlify.com/api/v1/accounts', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!r.ok) return null
-    const accounts = await r.json()
-    return accounts?.[0]?.id || null
-  } catch (e) {
-    return null
-  }
-}
-
-async function saveCustomDocs(docs) {
-  const token = process.env.NETLIFY_API_TOKEN
-  const accountId = await getAccountId(token)
-  const value = JSON.stringify(docs)
-  const payload = {
-    key: 'CUSTOM_DOCS',
-    scopes: ['builds', 'functions', 'runtime'],
-    values: [{ context: 'all', value }],
-  }
-
-  // POST requires account_id query param to create; PATCH to update existing
-  const postResult = await netlifyApiRequest('POST', '/env', [payload], accountId ? { account_id: accountId } : undefined)
-  if (postResult) return true
-
-  const patchResult = await netlifyApiRequest('PATCH', '/env/CUSTOM_DOCS', payload)
-  return !!patchResult
-}
+// Document upload handler
+// Stores document text content via Netlify API env vars
+// No @netlify/blobs — just fetch calls
 
 exports.handler = async (event) => {
-  const headers = { 'Content-Type': 'application/json' }
+  const headers = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Content-Type": "application/json",
+  };
 
-  if (event.httpMethod === 'POST') {
-    let body = {}
-    try { body = JSON.parse(event.body || '{}') } catch (e) {}
+  if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers, body: "" };
+  if (event.httpMethod !== "POST") return { statusCode: 405, headers, body: "" };
 
-    const { name, content } = body
+  const auth = event.headers["authorization"] || "";
+  const token = auth.replace("Bearer ", "").trim();
+  const adminPass = process.env.ADMIN_PASSWORD || "K3&GMarketing";
+  if (token !== adminPass) return { statusCode: 401, headers, body: JSON.stringify({ error: "Unauthorized" }) };
 
-    if (!name || !content) {
-      return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing name or content' }) }
-    }
+  try {
+    const { name, content, fileType } = JSON.parse(event.body || "{}");
+    if (!name || !content) return { statusCode: 400, headers, body: JSON.stringify({ error: "Name and content required" }) };
 
-    if (content.length > 51200) {
-      return { statusCode: 400, headers, body: JSON.stringify({ error: 'File too large (max 50KB as text)' }) }
-    }
-
-    let docs = []
+    // Load existing docs from env var
+    let docs = [];
     try {
-      const existing = process.env.CUSTOM_DOCS
-      if (existing) docs = JSON.parse(existing)
-    } catch (e) {}
+      const raw = process.env.CUSTOM_DOCS;
+      if (raw) docs = JSON.parse(raw);
+    } catch {}
 
-    if (docs.length >= 10) {
-      return { statusCode: 400, headers, body: JSON.stringify({ error: 'Maximum 10 documents reached. Delete one first.' }) }
-    }
+    // Add new doc (store up to 10 docs, truncate content to 50KB each to stay under env var limits)
+    const docId = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const truncatedContent = content.slice(0, 50000);
+    docs = [
+      { id: docId, name, fileType, uploadedAt: new Date().toISOString(), size: content.length, content: truncatedContent },
+      ...docs,
+    ].slice(0, 10);
 
-    docs = docs.filter(d => d.name !== name)
-    docs.push({ name, content, uploaded: new Date().toISOString() })
+    // Save back to Netlify env var
+    const siteId = process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
+    const netlifyToken = process.env.NETLIFY_API_TOKEN;
 
-    const ok = await saveCustomDocs(docs)
-
-    if (!ok) {
-      console.log('Netlify API not configured or failed — NETLIFY_SITE_ID/NETLIFY_API_TOKEN may be missing')
+    if (!siteId || !netlifyToken) {
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ success: false, error: 'Storage not configured. Check NETLIFY_SITE_ID and NETLIFY_API_TOKEN env vars.' }),
-      }
+        body: JSON.stringify({
+          success: false,
+          error: "Add NETLIFY_SITE_ID and NETLIFY_API_TOKEN to your environment variables to enable document storage.",
+        }),
+      };
     }
 
-    const docList = docs.map(d => ({ name: d.name, size: (d.content || '').length, uploaded: d.uploaded }))
-    return { statusCode: 200, headers, body: JSON.stringify({ success: true, docs: docList }) }
+    const res = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/env/CUSTOM_DOCS`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${netlifyToken}` },
+      body: JSON.stringify({
+        key: "CUSTOM_DOCS",
+        values: [{ value: JSON.stringify(docs.map(d => ({ ...d, content: d.content }))), context: "all" }],
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      return { statusCode: 200, headers, body: JSON.stringify({ success: false, error: errText }) };
+    }
+
+    return { statusCode: 200, headers, body: JSON.stringify({ success: true, docId, name }) };
+  } catch (err) {
+    console.error("upload-doc error:", err.message);
+    return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
   }
-
-  if (event.httpMethod === 'DELETE') {
-    let body = {}
-    try { body = JSON.parse(event.body || '{}') } catch (e) {}
-
-    const { name } = body
-
-    let docs = []
-    try {
-      const existing = process.env.CUSTOM_DOCS
-      if (existing) docs = JSON.parse(existing)
-    } catch (e) {}
-
-    docs = docs.filter(d => d.name !== name)
-
-    const ok = await saveCustomDocs(docs)
-    const docList = docs.map(d => ({ name: d.name, size: (d.content || '').length, uploaded: d.uploaded }))
-    return { statusCode: 200, headers, body: JSON.stringify({ success: ok, docs: docList }) }
-  }
-
-  return { statusCode: 405, body: 'Method not allowed' }
-}
+};
