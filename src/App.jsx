@@ -440,25 +440,35 @@ function ModeSelect({ onSelect }) {
       </div>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <div style={{ width: 68, height: 68, background: headerGrad, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20, fontSize: 28 }}>🏗️</div>
-        <h2 style={{ margin: '0 0 8px', color: C.navy, fontSize: 22, textAlign: 'center' }}>{t.q}</h2>
-        <p style={{ color: '#666', fontSize: 14, marginBottom: 32, textAlign: 'center' }}>KE&amp;G Construction — 100% Employee-Owned Since 2014</p>
+        <div style={{ width: 64, height: 64, background: headerGrad, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20, flexShrink: 0 }}>
+          <span style={{ color: C.white, fontWeight: 800, fontSize: 26, letterSpacing: '-1px', fontFamily: 'sans-serif' }}>K</span>
+        </div>
+        <h2 style={{ margin: '0 0 8px', color: C.navy, fontSize: 22, fontWeight: 700, textAlign: 'center', fontFamily: "'Inter', sans-serif" }}>{t.q}</h2>
+        <p style={{ color: '#777', fontSize: 14, marginBottom: 32, textAlign: 'center', margin: '0 0 32px' }}>KE&amp;G Construction &mdash; 100% Employee-Owned Since 2014</p>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, width: '100%', maxWidth: 420 }}>
-          {['employee', 'prospect'].map(m => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 400 }}>
+          {[
+            { m: 'employee', accent: C.blue },
+            { m: 'prospect', accent: C.orange },
+          ].map(({ m, accent }) => (
             <button key={m} onClick={() => onSelect(m, lang)}
               style={{
-                background: C.white, border: `2px solid ${m === 'employee' ? C.blue : C.orange}`,
-                borderRadius: 12, padding: '18px 22px', cursor: 'pointer', textAlign: 'left',
-                boxShadow: '0 2px 12px rgba(0,0,0,0.08)', transition: 'transform 0.1s',
+                background: C.white,
+                border: `2px solid ${accent}`,
+                borderRadius: 10,
+                padding: '16px 20px',
+                cursor: 'pointer',
+                textAlign: 'left',
+                boxShadow: '0 2px 10px rgba(0,0,0,0.07)',
+                fontFamily: "'Inter', sans-serif",
               }}
-              onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
-              onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+              onMouseEnter={e => { e.currentTarget.style.background = accent; e.currentTarget.querySelector('.card-title').style.color = C.white; e.currentTarget.querySelector('.card-desc').style.color = 'rgba(255,255,255,0.85)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = C.white; e.currentTarget.querySelector('.card-title').style.color = accent; e.currentTarget.querySelector('.card-desc').style.color = '#555' }}
             >
-              <div style={{ fontWeight: 700, fontSize: 15, color: m === 'employee' ? C.blue : C.orange, marginBottom: 5 }}>
+              <div className="card-title" style={{ fontWeight: 700, fontSize: 15, color: accent, marginBottom: 4 }}>
                 {t[m].label}
               </div>
-              <div style={{ fontSize: 13, color: '#555', lineHeight: 1.5 }}>{t[m].desc}</div>
+              <div className="card-desc" style={{ fontSize: 13, color: '#555', lineHeight: 1.5 }}>{t[m].desc}</div>
             </button>
           ))}
         </div>
