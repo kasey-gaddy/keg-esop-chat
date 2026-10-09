@@ -1,4 +1,4 @@
-export const handler = async (event) => {
+exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' }
   }
@@ -6,7 +6,6 @@ export const handler = async (event) => {
   try {
     const { question, mode, language, sessionId, theme } = JSON.parse(event.body)
 
-    // Log to function logs (visible in Netlify → Logs & metrics → Functions → log)
     console.log(JSON.stringify({
       type: 'QUESTION_LOG',
       timestamp: new Date().toISOString(),
@@ -17,7 +16,6 @@ export const handler = async (event) => {
       theme: theme || 'Other',
     }))
 
-    // If Google Sheets webhook is configured, also send there
     if (process.env.GOOGLE_SHEET_WEBHOOK) {
       fetch(process.env.GOOGLE_SHEET_WEBHOOK, {
         method: 'POST',
@@ -32,7 +30,7 @@ export const handler = async (event) => {
       body: JSON.stringify({ success: true }),
     }
   } catch (err) {
-    console.error('Log function error:', err)
+    console.error('Log function error:', err.message)
     return { statusCode: 500, body: JSON.stringify({ error: 'Log failed' }) }
   }
 }
