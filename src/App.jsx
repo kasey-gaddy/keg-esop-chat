@@ -636,8 +636,24 @@ function AdminDashboard({ data, password, onLogout }) {
       {tab === "log" && <div style={card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div style={cardTitle}>Question Log ({filteredQs.length} entries)</div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {["all", ...(monthIndex||[])].map(m => <button key={m} onClick={() => setMonthFilter(m)} style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer", border: `1.5px solid ${monthFilter===m ? B.orange : B.border}`, background: monthFilter===m ? B.orange : B.bgCard, color: monthFilter===m ? B.white : B.mid, fontFamily: "Inter,sans-serif" }}>{m==="all" ? "All" : m}</button>)}
+            <button onClick={() => {
+              const rows = filteredQs.slice(0, 200);
+              const header = "Timestamp,Mode,Language,Theme,Question";
+              const csv = [header, ...rows.map(r => [
+                r.timestamp ? new Date(r.timestamp).toLocaleString() : "",
+                r.mode || "",
+                r.language || "",
+                r.theme || "",
+                `"${(r.question || "").replace(/"/g, '""')}"`,
+              ].join(","))].join("\n");
+              const blob = new Blob([csv], { type: "text/csv" });
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = `esop-questions-${monthFilter}.csv`;
+              a.click();
+            }} style={{ padding: "3px 12px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer", border: `1.5px solid ${B.border}`, background: B.bgCard, color: B.mid, fontFamily: "Inter,sans-serif" }}>⬇ Export CSV</button>
           </div>
         </div>
         {filteredQs.length === 0 ? <div style={{ color: B.muted, fontSize: 13, padding: "20px 0" }}>No questions logged yet.</div> :
@@ -709,6 +725,20 @@ export default function App() {
 
   const startMode = (m) => { setMode(m); history.current = []; setMessages([{ role: "assistant", content: WELCOME[lang][m] }]); setShowCalc(false); };
 
+  const detectTheme = (q) => {
+    const t = q.toLowerCase();
+    if (/vest|vesting|vested|cliff/.test(t)) return "Vesting";
+    if (/distribut|cash out|collect|payout|receive|retire|retirement/.test(t)) return "Distributions";
+    if (/worth|value|price|share price|stock price|how much|account balance|balance/.test(t)) return "Account Value";
+    if (/leave|leaving|quit|fired|terminate|termination|resign|resignation|layoff/.test(t)) return "Leaving";
+    if (/enroll|join|eligible|eligibility|start|participate|sign up/.test(t)) return "Enrollment";
+    if (/blue diamond|bdl|holding|structure|parent/.test(t)) return "Company Structure";
+    if (/tax|taxes|taxed|ira|rollover|401k/.test(t)) return "Tax & Rollover";
+    if (/work|project|build|construction|service|do you|keg do/.test(t)) return "About KE&G";
+    if (/how.*work|what is|explain|overview|esop/.test(t)) return "How It Works";
+    return "Other";
+  };
+
   const sendMessage = async (text) => {
     const userText = (text || input).trim();
     if (!userText || loading) return;
@@ -719,11 +749,11 @@ export default function App() {
     history.current.push({ role: "user", content: userText });
     setLoading(true);
 
-    // Log question
+    // Log question with theme detection
     fetch("/.netlify/functions/log", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: userText, mode, language: lang, sessionId: SESSION_ID }),
+      body: JSON.stringify({ question: userText, mode, language: lang, sessionId: SESSION_ID, theme: detectTheme(userText) }),
     }).catch(() => {});
 
     try {
