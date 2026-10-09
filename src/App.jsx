@@ -402,6 +402,75 @@ function AdminLogin({ onSuccess }) {
   )
 }
 
+// ── Mode Select Splash ────────────────────────────────────────
+function ModeSelect({ onSelect }) {
+  const [lang, setLang] = useState('en')
+
+  const copy = {
+    en: {
+      title: 'ESOP Ownership Assistant',
+      sub: 'Constructing Legacies.',
+      q: 'How can I help you today?',
+      employee: { label: 'I\'m a KE&G Employee-Owner', desc: 'Get answers about vesting, distributions, your account, and how ownership works.' },
+      prospect: { label: 'I\'m Exploring KE&G', desc: 'Learn what 100% employee ownership means for your career and financial future.' },
+      langBtn: 'Español',
+    },
+    es: {
+      title: 'Asistente de Propiedad ESOP',
+      sub: 'Constructing Legacies.',
+      q: '¿Cómo puedo ayudarte hoy?',
+      employee: { label: 'Soy Empleado-Propietario de KE&G', desc: 'Obtén respuestas sobre adquisición de derechos, distribuciones, tu cuenta y cómo funciona la propiedad.' },
+      prospect: { label: 'Estoy Explorando KE&G', desc: 'Conoce qué significa ser propietario al 100% para tu carrera y futuro financiero.' },
+      langBtn: 'English',
+    },
+  }
+  const t = copy[lang]
+
+  return (
+    <div style={{ minHeight: '100vh', background: C.lightBg, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ background: headerGrad, padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <div style={{ color: C.white, fontWeight: 700, fontSize: 18 }}>{t.title}</div>
+          <div style={{ color: C.gray, fontSize: 12, fontStyle: 'italic', fontFamily: "'Mr Dafoe', cursive" }}>{t.sub}</div>
+        </div>
+        <button onClick={() => setLang(l => l === 'en' ? 'es' : 'en')}
+          style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)', color: C.white, padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
+          {t.langBtn}
+        </button>
+      </div>
+
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <div style={{ width: 68, height: 68, background: headerGrad, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20, fontSize: 28 }}>🏗️</div>
+        <h2 style={{ margin: '0 0 8px', color: C.navy, fontSize: 22, textAlign: 'center' }}>{t.q}</h2>
+        <p style={{ color: '#666', fontSize: 14, marginBottom: 32, textAlign: 'center' }}>KE&amp;G Construction — 100% Employee-Owned Since 2014</p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, width: '100%', maxWidth: 420 }}>
+          {['employee', 'prospect'].map(m => (
+            <button key={m} onClick={() => onSelect(m, lang)}
+              style={{
+                background: C.white, border: `2px solid ${m === 'employee' ? C.blue : C.orange}`,
+                borderRadius: 12, padding: '18px 22px', cursor: 'pointer', textAlign: 'left',
+                boxShadow: '0 2px 12px rgba(0,0,0,0.08)', transition: 'transform 0.1s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+              onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+            >
+              <div style={{ fontWeight: 700, fontSize: 15, color: m === 'employee' ? C.blue : C.orange, marginBottom: 5 }}>
+                {t[m].label}
+              </div>
+              <div style={{ fontSize: 13, color: '#555', lineHeight: 1.5 }}>{t[m].desc}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ textAlign: 'center', padding: '12px 16px', fontSize: 11, color: '#aaa' }}>
+        {lang === 'es' ? 'Solo estimaciones — contacta al equipo de Administración de Beneficios para detalles.' : 'Estimates only — contact the Benefits Administration team for account specifics.'} · KE&amp;G Construction
+      </div>
+    </div>
+  )
+}
+
 // ── Main Chat App ─────────────────────────────────────────────
 export default function App() {
   const isAdmin = window.location.pathname === '/admin'
@@ -409,6 +478,7 @@ export default function App() {
   const [adminAuthed, setAdminAuthed] = useState(false)
   const [lang, setLang] = useState('en')
   const [mode, setMode] = useState('employee')
+  const [modeSelected, setModeSelected] = useState(false)
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -475,6 +545,14 @@ export default function App() {
   if (isAdmin) {
     if (!adminAuthed) return <AdminLogin onSuccess={() => setAdminAuthed(true)} />
     return <AdminDashboard onLogout={() => setAdminAuthed(false)} />
+  }
+
+  if (!modeSelected) {
+    return <ModeSelect onSelect={(selectedMode, selectedLang) => {
+      setMode(selectedMode)
+      setLang(selectedLang)
+      setModeSelected(true)
+    }} />
   }
 
   return (
