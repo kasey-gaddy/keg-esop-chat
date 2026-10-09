@@ -17,6 +17,7 @@ async function getAccountId(token) {
 
 async function upsertEnvVar(siteId, token, key, value) {
   const accountId = await getAccountId(token);
+  console.log("upsertEnvVar accountId:", accountId, "siteId:", siteId ? siteId.slice(0,8)+"..." : "MISSING");
   const payload = { key, scopes: ["builds", "functions", "runtime"], values: [{ context: "all", value }] };
 
   // POST to create (requires account_id), PATCH to update existing
@@ -28,6 +29,8 @@ async function upsertEnvVar(siteId, token, key, value) {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify([payload]),
   });
+  const postText = await postRes.text();
+  console.log("POST result:", postRes.status, postText.slice(0, 300));
   if (postRes.ok) return true;
 
   const patchRes = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/env/${key}`, {
@@ -35,6 +38,8 @@ async function upsertEnvVar(siteId, token, key, value) {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload),
   });
+  const patchText = await patchRes.text();
+  console.log("PATCH result:", patchRes.status, patchText.slice(0, 300));
   return patchRes.ok;
 }
 
