@@ -37,46 +37,27 @@ async function getDocs() {
   try {
     const store = getBlobStore("esop-docs");
     const raw = await store.get("index");
+    console.log("getDocs raw:", raw ? raw.slice(0, 200) : "null/undefined");
     if (raw) return JSON.parse(raw);
-  } catch {}
+  } catch (err) {
+    console.error("getDocs error:", err.message);
+  }
   return [];
 }
 
 async function getLogData() {
-  const dbUrl = process.env.NETLIFY_DATABASE_URL;
-  if (!dbUrl) {
-    return { rows: [], summary: { total: 0, byTheme: {}, byMode: {}, byLanguage: {}, byMonth: {}, uniqueSessions: {} } };
-  }
-
   try {
-    const res = await fetch(`${dbUrl}/query`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "nf-db-token": process.env.NETLIFY_DB_TOKEN || "" },
-      body: JSON.stringify({
-        query: `SELECT timestamp, month, mode, language, theme, question, session_id
-                FROM esop_questions
-                ORDER BY timestamp DESC
-                LIMIT 500`,
-        params: [],
-      }),
-    });
-
-    if (!res.ok) return { rows: [], summary: buildSummary([]) };
-    const data = await res.json();
-    const rows = (data.rows || []).map(r => ({
-      timestamp: r.timestamp,
-      month: r.month,
-      mode: r.mode,
-      language: r.language,
-      theme: r.theme,
-      question: r.question,
-      sessionId: r.session_id,
-    }));
-    return { rows, summary: buildSummary(rows) };
+    const store = getBlobStore("esop-logs");
+    const raw = await store.get("questions");
+    console.log("getLogData raw:", raw ? raw.slice(0, 200) : "null/undefined");
+    if (raw) {
+      const rows = JSON.parse(raw);
+      return { rows, summary: buildSummary(rows) };
+    }
   } catch (err) {
     console.error("getLogData error:", err.message);
-    return { rows: [], summary: buildSummary([]) };
   }
+  return { rows: [], summary: buildSummary([]) };
 }
 
 function buildSummary(rows) {
