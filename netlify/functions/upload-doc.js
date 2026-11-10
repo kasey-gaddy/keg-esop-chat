@@ -1,4 +1,3 @@
-// Document upload handler — uses Netlify Blobs for storage (free, no API token needed)
 const { getStore } = require("@netlify/blobs");
 
 function getBlobStore(name) {
@@ -31,7 +30,6 @@ exports.handler = async (event) => {
       const { name, content, fileType } = JSON.parse(event.body || "{}");
       if (!name || !content) return { statusCode: 400, headers, body: JSON.stringify({ error: "Name and content required" }) };
 
-      // Load existing doc list
       let docs = [];
       try {
         const raw = await store.get("index");
@@ -45,10 +43,8 @@ exports.handler = async (event) => {
       const docId = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       const truncatedContent = content.slice(0, 50000);
 
-      // Store doc content separately
       await store.set(`doc-${docId}`, truncatedContent);
 
-      // Update index
       docs = [{ id: docId, name, fileType, uploadedAt: new Date().toISOString(), size: content.length }, ...docs].slice(0, 10);
       await store.set("index", JSON.stringify(docs));
 

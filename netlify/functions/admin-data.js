@@ -1,4 +1,3 @@
-// Admin data handler — uses Netlify Blobs for storage (free, no API token needed)
 const { getStore } = require("@netlify/blobs");
 
 function getBlobStore(name) {
@@ -37,7 +36,6 @@ async function getDocs() {
   try {
     const store = getBlobStore("esop-docs");
     const raw = await store.get("index");
-    console.log("getDocs raw:", raw ? raw.slice(0, 200) : "null/undefined");
     if (raw) return JSON.parse(raw);
   } catch (err) {
     console.error("getDocs error:", err.message);
@@ -45,19 +43,52 @@ async function getDocs() {
   return [];
 }
 
+// Get available archive months by checking known recent months
+async function getArchiveMonths(store) {
+  const months = [];
+  const now = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `archive-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    try {
+      const raw = await store.get(key);
+      if (raw) months.push({ key, month: key.replace("archive-", ""), data: JSON.parse(raw) });
+    } catch {}
+  }
+  return months;
+}
+
 async function getLogData() {
   try {
     const store = getBlobStore("esop-logs");
-    const raw = await store.get("questions");
-    console.log("getLogData raw:", raw ? raw.slice(0, 200) : "null/undefined");
-    if (raw) {
-      const rows = JSON.parse(raw);
-      return { rows, summary: buildSummary(rows) };
+
+    // Try rolling list first
+    let rows = [];
+    try {
+      const raw = await store.get("questions");
+      if (raw) rows = JSON.parse(raw);
+    } catch {}
+
+    // If rolling list is empty or thin, rebuild from monthly archives
+    if (rows.length === 0) {
+      console.log("Rolling list empty — rebuilding from archives");
+      const archives = await getArchiveMonths(store);
+      for (const a of archives) {
+        rows = rows.concat(a.data);
+      }
+      rows.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      // Restore rolling list
+      if (rows.length > 0) {
+        await store.set("questions", JSON.stringify(rows.slice(0, 500)));
+        console.log(`Restored ${rows.length} rows from archives`);
+      }
     }
+
+    return { rows, summary: buildSummary(rows) };
   } catch (err) {
     console.error("getLogData error:", err.message);
+    return { rows: [], summary: buildSummary([]) };
   }
-  return { rows: [], summary: buildSummary([]) };
 }
 
 function buildSummary(rows) {
@@ -140,7 +171,7 @@ exports.handler = async (event) => {
           summaries,
           aggregate,
           recentQuestions: logData.rows.slice(0, 100),
-          hasDb: !!process.env.NETLIFY_DATABASE_URL,
+          hasDb: true,
         }),
       };
     } catch (err) {
