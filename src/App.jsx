@@ -879,7 +879,9 @@ export default function App() {
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M22 2L11 13" stroke="white" strokeWidth="2.5" strokeLinecap="round"/><path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
         </button>
       </div>
-      <p style={{ fontSize: 10, color: "#7a8aa0", textAlign: "center", margin: "7px 0 0" }}>{t.disclaimer}</p>
+      <p style={{ fontSize: 10, color: "#7a8aa0", textAlign: "center", margin: "7px 0 0" }}>
+      {t.disclaimer} · <a href="https://www.kegtus.com/esop-chatbot-disclaimer/" target="_blank" rel="noopener noreferrer" style={{ color: "#7a8aa0", textDecoration: "underline" }}>{lang === "es" ? "Ver descargo de responsabilidad" : "View Disclaimer"}</a>
+    </p>
     </div>
   </div>;
 }
