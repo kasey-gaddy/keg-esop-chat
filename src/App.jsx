@@ -23,7 +23,7 @@ const T = {
     employeeLabel: "I'm a KE&G employee-owner", employeeSub: "Ask about vesting, your account, payouts, BDL, and what ownership really means for your retirement.",
     prospectLabel: "I'm exploring a career at KE&G", prospectSub: "Learn what employee ownership means in practice — and why it makes KE&G different from most employers.",
     tagline: "Constructing Legacies.", footer: "Employee-Owned Since 2014 · Constructing Legacies.",
-    placeholder: "Ask about the ESOP…", disclaimer: "Estimates only — for account specifics, contact the Benefits Administration team. · KE&G Construction",
+    placeholder: "Ask about the ESOP…", disclaimer: "Estimates only — for account specifics, contact the",
     commonQ: "Common questions", calcTitle: "ESOP Wealth Calculator", calcSub: "See what your ownership could be worth at retirement",
     payType: "Pay type", hourly: "Hourly", salaried: "Salaried", hourlyWage: "Hourly wage", annualSalary: "Annual salary",
     currentBalance: "Current ESOP balance", balanceHint: "From your last annual statement",
@@ -40,7 +40,7 @@ const T = {
     employeeLabel: "Soy empleado-propietario de KE&G", employeeSub: "Pregunta sobre la adquisición de derechos, tu cuenta, pagos, BDL y lo que significa la propiedad para tu jubilación.",
     prospectLabel: "Estoy explorando una carrera en KE&G", prospectSub: "Aprende lo que significa la propiedad de empleados en la práctica.",
     tagline: "Construyendo Legados.", footer: "Propiedad de Empleados desde 2014 · Construyendo Legados.",
-    placeholder: "Pregunta sobre el ESOP…", disclaimer: "Solo estimaciones — para detalles de tu cuenta, contacta al equipo de Administración de Beneficios. · KE&G Construction",
+    placeholder: "Pregunta sobre el ESOP…", disclaimer: "Solo estimaciones — para detalles de tu cuenta, contacta al",
     commonQ: "Preguntas frecuentes", calcTitle: "Calculadora de Riqueza ESOP", calcSub: "Descubre cuánto podría valer tu propiedad al jubilarte",
     payType: "Tipo de pago", hourly: "Por hora", salaried: "Asalariado", hourlyWage: "Salario por hora", annualSalary: "Salario anual",
     currentBalance: "Saldo ESOP actual", balanceHint: "De tu último estado de cuenta anual",
@@ -880,7 +880,7 @@ export default function App() {
         </button>
       </div>
       <p style={{ fontSize: 10, color: "#7a8aa0", textAlign: "center", margin: "7px 0 0" }}>
-      {t.disclaimer} · <a href="https://www.kegtus.com/esop-chatbot-disclaimer/" target="_blank" rel="noopener noreferrer" style={{ color: "#7a8aa0", textDecoration: "underline" }}>{lang === "es" ? "Ver descargo de responsabilidad" : "View Disclaimer"}</a>
+      {t.disclaimer} <a href="mailto:benefits@kegtus.com" style={{ color: "#7a8aa0", textDecoration: "underline" }}>{lang === "es" ? "equipo de Administración de Beneficios" : "Benefits Administration team"}</a>. · <a href="https://www.kegtus.com/esop-chatbot-disclaimer/" target="_blank" rel="noopener noreferrer" style={{ color: "#7a8aa0", textDecoration: "underline" }}>{lang === "es" ? "Ver descargo de responsabilidad" : "View Disclaimer"}</a>
     </p>
     </div>
   </div>;
